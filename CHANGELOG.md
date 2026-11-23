@@ -2,6 +2,11 @@
 
 Update a repo with `.wallnote/wallnote update`. It keeps your team settings. Commit the result.
 
+## 0.3.3
+- No setup questions: wallnote turns on with safe defaults (notify; check on prompt and task end)
+  the first time someone's agent starts, and the agent tells them once how to change it.
+- Update notice appears at most once a day.
+
 ## 0.3.2
 - Agents are told, at most once a day, when a newer wallnote is available.
 

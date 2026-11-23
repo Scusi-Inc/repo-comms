@@ -6,9 +6,9 @@
 People and agents on this repo message each other through GitHub Issues. Each open issue is
 waiting on one person (its assignee), optionally on one of their agent roles (`role:` label).
 
-- **Start of every session:** run `.wallnote/wallnote hook session`. If it says wallnote isn't set
-  up, ask your user the questions it lists and run the setup command it gives you. If messages are
-  waiting, tell your user before other work.
+- **Start of every session:** run `.wallnote/wallnote hook session`. On first run it turns wallnote on
+  with safe defaults; pass on its one-line note to your user. If messages are waiting, tell your
+  user before other work.
 - **After each task you finish:** run `.wallnote/wallnote check`. It is quiet unless something new arrived.
   (Claude Code does both automatically via hooks.)
 - **Follow the autonomy level** the output states (notify / ack / act) and the team rules it lists.

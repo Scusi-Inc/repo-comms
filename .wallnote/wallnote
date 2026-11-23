@@ -3,7 +3,7 @@
 # Needs only `gh` (logged in). Works with bash 3.2+ (macOS). See .wallnote/PROTOCOL.md.
 set -euo pipefail
 
-VERSION=0.3.2
+VERSION=0.3.3
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 die() { echo "wallnote: $*" >&2; exit 1; }
@@ -162,7 +162,7 @@ cmd_ready() {
 }
 
 setup_note() {
-  is_setup || echo "(Note: wallnote isn't set up for you yet, so your agent won't be told about new messages. Run: .wallnote/wallnote setup)" >&2
+  is_setup || echo "(Note: wallnote turns itself on with default settings at your next agent session, or run: .wallnote/wallnote check)" >&2
   return 0
 }
 
@@ -345,7 +345,7 @@ cmd_settings() {
 }
 
 cmd_setup() {
-  if [[ $# -eq 0 ]] && ! is_setup; then onboarding; return 0; fi
+  if [[ $# -eq 0 ]]; then onboarding; return 0; fi
   local a="" c="" role=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -394,13 +394,26 @@ guidance() {
 
 onboarding() {
   cat <<EOF
-## wallnote: not set up for this user yet
+## wallnote settings: ask your user, then run the command below
 This repo uses wallnote (team messages on GitHub Issues; see .wallnote/PROTOCOL.md).
-Before other work, briefly ask your user these, then run the setup command with their answers:
 1. Autonomy when a message arrives for them: notify (just tell me, default) | ack (acknowledge, then ask me) | act (handle it within team rules, then tell me). Team maximum: $(team max_autonomy act).
 2. When to check for new messages: prompt (each time I send a message), stop (each time you finish a task), or both (default).
 $(if [[ -n "$(team roles "")" ]]; then echo "3. Does this agent have a role? Optional. Team roles: $(team roles "")."; else echo "3. Roles: none are defined for this repo yet (roles = in .wallnote/config), so skip --role. If your user wants roles, add them to .wallnote/config first and commit."; fi)
 Then run: .wallnote/wallnote setup --autonomy <a> --check <prompt,stop|prompt|stop|session> [--role <r>]
+EOF
+}
+
+auto_setup() {
+  local pf; pf=$(personal_file)
+  conf_set "$pf" autonomy notify; conf_set "$pf" check prompt,stop; conf_set "$pf" reminded "$(date -u +%s)"
+  cat <<EOF
+## wallnote is now on for @$(me) (first run, default settings)
+This repo uses wallnote for team messages on GitHub Issues (see .wallnote/PROTOCOL.md).
+Tell your user once, briefly: wallnote is on with safe defaults. You'll tell them about new messages
+but won't act on them (autonomy: notify), checking when they send a prompt and when you finish a task.
+They can say e.g. "let wallnote acknowledge messages for me" or "give this agent the <role> role",
+and you'd run: .wallnote/wallnote setup --autonomy notify|ack|act --check prompt,stop  /  .wallnote/wallnote role <r>
+$(if [[ -n "$(team roles "")" ]]; then echo "Team roles: $(team roles ""). Autonomy maximum here: $(team max_autonomy act)."; else echo "Autonomy maximum here: $(team max_autonomy act)."; fi)
 EOF
 }
 
@@ -441,10 +454,11 @@ update_line() {
   local f now last latest; f="$(commondir)/wallnote-version-check"; now=$(date -u +%s)
   last=$(head -1 "$f" 2>/dev/null || echo 0)
   if [[ $((now - last)) -ge 86400 ]]; then
-    latest=$(gh api "repos/${WALLNOTE_SRC:-Scusi-Inc/wallnote}/contents/.wallnote/wallnote" --jq .content 2>/dev/null | base64 -d 2>/dev/null | grep -m1 '^VERSION=' | cut -d= -f2) || latest=""
+    local src; src=$(gh api "repos/${WALLNOTE_SRC:-Scusi-Inc/wallnote}/contents/.wallnote/wallnote" --jq .content 2>/dev/null | base64 -d 2>/dev/null) || src=""
+    latest=$(printf '%s\n' "$src" | grep '^VERSION=' | head -1 | cut -d= -f2)
     printf '%s\n%s\n' "$now" "$latest" > "$f"
   else
-    latest=$(sed -n 2p "$f" 2>/dev/null)
+    return 0   # already checked (and, if needed, mentioned) today
   fi
   [[ -n "$latest" && "$latest" != "$VERSION" ]] || return 0
   # Only suggest if newer (sort -V puts the higher version last).
@@ -466,8 +480,8 @@ cmd_hook() {
   [[ -t 0 ]] || input=$(cat || true)
   git rev-parse --git-dir >/dev/null 2>&1 || exit 0
   if ! is_setup; then
-    [[ "$event" == "session" ]] && onboarding
-    exit 0
+    [[ "$event" == "session" ]] || exit 0
+    auto_setup
   fi
   checks=$(personal check prompt,stop)
   case "$event" in
@@ -505,7 +519,7 @@ cmd_hook() {
 
 # For agents without hooks (Codex, Cursor...): same as the stop check, printed plainly.
 cmd_check() {
-  is_setup || { onboarding; return 0; }
+  is_setup || auto_setup
   update_line 2>/dev/null || true
   local new; new=$(new_for_me)
   [[ -z "$new" ]] && { echo "nothing new"; return 0; }
