@@ -3,7 +3,7 @@
 # Needs only `gh` (logged in). Works with bash 3.2+ (macOS). See .wallnote/PROTOCOL.md.
 set -euo pipefail
 
-VERSION=0.3.0
+VERSION=0.3.1
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 die() { echo "wallnote: $*" >&2; exit 1; }
@@ -62,6 +62,11 @@ autonomy() { # effective: min(personal, team max)
 # ---------- helpers ----------
 
 read_body() {
+  if [[ "${1:-}" == "--body-file" ]]; then
+    [[ -n "${2:-}" ]] || die "--body-file needs a path (or - for stdin)"
+    if [[ "$2" == "-" ]]; then cat; else [[ -f "$2" ]] || die "no such file: $2"; cat "$2"; fi
+    return
+  fi
   if [[ $# -gt 0 && "$1" != "-" ]]; then printf '%s' "$*"
   elif [[ ! -t 0 ]]; then cat
   else echo ""; fi
@@ -133,9 +138,10 @@ Reading
   wallnote waiting               every open thread, grouped by who holds the ball
   wallnote inbox [--peek]        everything that changed since you last looked
 
-Writing (every post says whose turn is next)
-  wallnote open "title" --to @who[/role] [body|-] [--force]
-  wallnote reply N --to @who[/role] [body|-]       hand the ball on (@me keeps it)
+Writing (every post says whose turn is next; any body can come from --body-file F, - = stdin)
+  wallnote open "title" --to @who[/role] [body|-|--body-file F] [--force]
+                                 (WALLNOTE_NO_DEDUPE=1 skips the duplicate check for a whole batch)
+  wallnote reply N --to @who[/role] [body|-|--body-file F]   hand the ball on (@me keeps it)
   wallnote ack N [note]                            "got it, on it"; you keep the ball
   wallnote progress N "update"                     status update; you keep the ball
   wallnote block N --on M                          N can't move until M is closed
@@ -182,14 +188,17 @@ cmd_waiting() {
 waiting_list() {
   local r=$1
   gh api "repos/$r/issues?state=open&per_page=100" --jq '
+    def line(ind): "\(ind)#\(.number)\t\(.title)\t\(((now - (.updated_at|fromdate))/3600|floor))h"
+      + (if (.issue_dependencies_summary.blocked_by // 0) > 0 then "\t[blocked]" else "" end)
+      + ([.labels[].name | select(startswith("acked"))] | if length>0 then "\t[acked]" else "" end);
     map(select(.pull_request|not))
-    | map(. + {who: ((.assignees[0].login // "NOBODY (fix this)") + ([.labels[].name | select(startswith("role:")) | ltrimstr("role:")] | if length>0 then "/" + .[0] else "" end))})
-    | group_by(.who)
-    | .[] | "\n== waiting on \(.[0].who) ==",
-      (sort_by(.updated_at) | .[] |
-        "  #\(.number)\t\(.title)\t\(((now - (.updated_at|fromdate))/3600|floor))h"
-        + (if (.issue_dependencies_summary.blocked_by // 0) > 0 then "\t[blocked]" else "" end)
-        + ([.labels[].name | select(startswith("acked"))] | if length>0 then "\t[acked]" else "" end))'
+    | map(. + {person: (.assignees[0].login // "NOBODY (fix this)"),
+               role: ([.labels[].name | select(startswith("role:")) | ltrimstr("role:")] | .[0] // "")})
+    | group_by(.person) | .[]
+    | "\n== waiting on @\(.[0].person) (\(length)) ==",
+      (group_by(.role) | .[]
+        | if .[0].role == "" then (sort_by(.updated_at) | .[] | line("  "))
+          else "  -- @\(.[0].person)/\(.[0].role) (\(length))", (sort_by(.updated_at) | .[] | line("    ")) end)'
 }
 
 cmd_inbox() {
@@ -224,10 +233,12 @@ cmd_open() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --to) to=$2; shift 2;;
-      --force) force=1; shift;;
+      --force|--no-dedupe) force=1; shift;;
+      --body-file) args+=("$1" "${2:-}"); shift 2;;
       *) if [[ -z "$title" ]]; then title=$1; else args+=("$1"); fi; shift;;
     esac
   done
+  [[ "${WALLNOTE_NO_DEDUPE:-}" == 1 ]] && force=1
   [[ -n "$title" ]] || die "usage: wallnote open \"title\" --to @who[/role] [body]"
   [[ -n "$to" ]] || die "--to is required (whose turn is it?)"
   parse_to "$to"
@@ -266,6 +277,7 @@ cmd_reply() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --to) to=$2; shift 2;;
+      --body-file) args+=("$1" "${2:-}"); shift 2;;
       *) if [[ -z "$n" ]]; then n=${1#\#}; else args+=("$1"); fi; shift;;
     esac
   done
