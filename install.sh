@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Install repo-comms into the current git repo. Needs: git, gh (logged in).
-#   gh api repos/Scusi-Inc/repo-comms/contents/install.sh --jq .content | base64 -d | bash
+# Install wallnote into the current git repo. Needs: git, gh (logged in).
+#   gh api repos/Scusi-Inc/wallnote/contents/install.sh --jq .content | base64 -d | bash
 set -euo pipefail
-SRC=${COMMS_SRC:-Scusi-Inc/repo-comms}
-REF=${COMMS_REF:-main}
+SRC=${WALLNOTE_SRC:-Scusi-Inc/wallnote}
+REF=${WALLNOTE_REF:-main}
 root=$(git rev-parse --show-toplevel) || { echo "run inside a git repo" >&2; exit 1; }
-gh api "repos/$SRC" --jq .full_name >/dev/null 2>&1 || { echo "repo-comms: no access to $SRC — ask to be added to it" >&2; exit 1; }
+gh api "repos/$SRC" --jq .full_name >/dev/null 2>&1 || { echo "wallnote: no access to $SRC — ask to be added to it" >&2; exit 1; }
 cd "$root"
 
 fetch() { # src-path dest-path
@@ -13,11 +13,11 @@ fetch() { # src-path dest-path
   gh api "repos/$SRC/contents/$1?ref=$REF" --jq .content | base64 -d > "$2"
 }
 
-fetch .comms/comms .comms/comms && chmod +x .comms/comms
-fetch .comms/PROTOCOL.md .comms/PROTOCOL.md
+fetch .wallnote/wallnote .wallnote/wallnote && chmod +x .wallnote/wallnote
+fetch .wallnote/PROTOCOL.md .wallnote/PROTOCOL.md
 mkdir -p .github/workflows
-cat > .github/workflows/comms.yml <<'YAML'
-name: repo-comms
+cat > .github/workflows/wallnote.yml <<'YAML'
+name: wallnote
 # Keeps "whose turn is it" (the single assignee) correct when people post from the GitHub UI.
 on:
   issues:
@@ -28,7 +28,7 @@ permissions:
   issues: write
   contents: read
 concurrency:
-  group: comms-${{ github.event.issue.number }}
+  group: wallnote-${{ github.event.issue.number }}
 jobs:
   ball:
     if: ${{ !github.event.issue.pull_request }}
@@ -37,19 +37,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: .comms
-      - run: bash .comms/comms _action
+          sparse-checkout: .wallnote
+      - run: bash .wallnote/wallnote _action
         env:
           GH_TOKEN: ${{ github.token }}
 YAML
 
 # AGENTS.md: replace our block if present, else append.
 block=$(gh api "repos/$SRC/contents/AGENTS.md?ref=$REF" --jq .content | base64 -d)
-if [[ -f AGENTS.md ]] && grep -q 'repo-comms:start' AGENTS.md; then
+if [[ -f AGENTS.md ]] && grep -q 'wallnote:start' AGENTS.md; then
   python3 - "$block" <<'PY'
 import re,sys
 p='AGENTS.md'; s=open(p).read()
-s=re.sub(r'<!-- repo-comms:start -->.*?<!-- repo-comms:end -->', sys.argv[1].strip(), s, flags=re.S)
+s=re.sub(r'<!-- wallnote:start -->.*?<!-- wallnote:end -->', sys.argv[1].strip(), s, flags=re.S)
 open(p,'w').write(s)
 PY
 else
@@ -61,7 +61,7 @@ if [[ ! -f CLAUDE.md ]]; then echo "@AGENTS.md" > CLAUDE.md
 elif ! grep -q '@AGENTS.md' CLAUDE.md; then printf '\n@AGENTS.md\n' >> CLAUDE.md; fi
 
 # Claude Code session-start hook.
-hook='bash "$CLAUDE_PROJECT_DIR/.comms/comms" hook'
+hook='bash "$CLAUDE_PROJECT_DIR/.wallnote/wallnote" hook'
 mkdir -p .claude
 python3 - "$hook" <<'PY'
 import json,os,sys
@@ -73,5 +73,5 @@ if not any(h.get('command')==hook for g in ss for h in g.get('hooks',[])):
 json.dump(s,open(p,'w'),indent=2); open(p,'a').write('\n')
 PY
 
-echo "repo-comms installed. Commit these and push:"
-git status --short .comms .github/workflows/comms.yml AGENTS.md CLAUDE.md .claude/settings.json
+echo "wallnote installed. Commit these and push:"
+git status --short .wallnote .github/workflows/wallnote.yml AGENTS.md CLAUDE.md .claude/settings.json

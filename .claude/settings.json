@@ -3,7 +3,7 @@
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.comms/comms\" hook", "timeout": 15 }
+          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.wallnote/wallnote\" hook", "timeout": 15 }
         ]
       }
     ]
