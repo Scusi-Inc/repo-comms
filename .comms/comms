@@ -1,0 +1,221 @@
+#!/usr/bin/env bash
+# comms — whose-turn-is-it messaging on GitHub Issues.
+# Needs only `gh` (authenticated). See .comms/PROTOCOL.md.
+set -euo pipefail
+
+VERSION=0.1.0
+
+die() { echo "comms: $*" >&2; exit 1; }
+
+repo() {
+  if [[ -n "${GH_REPO:-}" ]]; then echo "$GH_REPO"; return; fi
+  local url; url=$(git remote get-url origin 2>/dev/null) || die "no git remote 'origin'"
+  url=${url%.git}; url=${url#*github.com[:/]}
+  echo "$url"
+}
+
+me() {
+  if [[ -n "${COMMS_ME:-}" ]]; then echo "$COMMS_ME"; return; fi
+  gh api user --jq .login
+}
+
+cursor_file() { echo "$(git rev-parse --git-dir)/comms-last-seen"; }
+
+# Read a body from the remaining args, or stdin if none / "-".
+read_body() {
+  if [[ $# -gt 0 && "$1" != "-" ]]; then printf '%s' "$*"
+  elif [[ ! -t 0 ]]; then cat
+  else echo ""; fi
+}
+
+norm_to() { local t=${1#@}; [[ "$t" == "me" ]] && t=$(me); echo "$t"; }
+
+usage() {
+  cat <<'EOF'
+comms — threads with a ball. Every open thread is waiting on exactly one person.
+
+  comms ready                       threads waiting on you, not blocked (do these)
+  comms inbox [--peek]              what changed since you last looked
+  comms waiting                     every open thread, grouped by who holds the ball
+  comms show N                      read a thread
+  comms open "title" --to @who [body|-] [--force]
+                                    start a thread (warns on likely duplicates)
+  comms reply N --to @who [body|-]  post, and hand the ball to @who (@me keeps it)
+  comms block N --on M              thread N can't move until M is closed
+  comms close N [reason]            close a thread; say what was decided
+  comms hook                        session-start summary (used by agent hooks)
+
+Body comes from args or stdin. --to is required: you can't post and leave the ball nowhere.
+EOF
+}
+
+cmd_ready() {
+  local r u; r=$(repo); u=$(me)
+  gh api "repos/$r/issues?state=open&assignee=$u&per_page=100" --jq '
+    map(select(.pull_request|not))
+    | map(select((.issue_dependencies_summary.blocked_by // 0) == 0))
+    | sort_by(.updated_at)
+    | .[] | "#\(.number)\t\(.title)\t(\(((now - (.updated_at|fromdate))/3600|floor))h since last activity)"'
+}
+
+cmd_waiting() {
+  local r; r=$(repo)
+  gh api "repos/$r/issues?state=open&per_page=100" --jq '
+    map(select(.pull_request|not))
+    | group_by(.assignees[0].login // "~NOBODY~")
+    | .[] | "\n== waiting on \(.[0].assignees[0].login // "NOBODY (fix this)") ==",
+      (sort_by(.updated_at) | .[] |
+        "  #\(.number)\t\(.title)\t\(((now - (.updated_at|fromdate))/3600|floor))h"
+        + (if (.issue_dependencies_summary.blocked_by // 0) > 0 then "\t[blocked]" else "" end))'
+}
+
+cmd_inbox() {
+  local peek=0; [[ "${1:-}" == "--peek" ]] && peek=1
+  local r u cf since now_ts; r=$(repo); u=$(me); cf=$(cursor_file)
+  since=$(cat "$cf" 2>/dev/null || echo "1970-01-01T00:00:00Z")
+  now_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  gh api -X GET search/issues -f q="repo:$r is:issue involves:$u updated:>$since" -f sort=updated -f per_page=50 --jq '
+    .items[] | "#\(.number)\t[\(.state)]\t\(.title)\tball: \(.assignees[0].login // "-")\tupdated \(.updated_at)"'
+  [[ $peek -eq 1 ]] || echo "$now_ts" > "$cf"
+}
+
+cmd_show() { [[ -n "${1:-}" ]] || die "usage: comms show N"; gh issue view "$1" -R "$(repo)" --comments; }
+
+set_ball() { # issue login
+  gh api -X PATCH "repos/$(repo)/issues/$1" --input - >/dev/null <<EOF
+{"assignees":["$2"]}
+EOF
+}
+
+cmd_open() {
+  local title="" to="" force=0 args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --to) to=$(norm_to "$2"); shift 2;;
+      --force) force=1; shift;;
+      *) if [[ -z "$title" ]]; then title=$1; else args+=("$1"); fi; shift;;
+    esac
+  done
+  [[ -n "$title" ]] || die "usage: comms open \"title\" --to @who [body]"
+  [[ -n "$to" ]] || die "--to is required (whose turn is it?)"
+  local r; r=$(repo)
+  if [[ $force -eq 0 ]]; then
+    local dupes
+    dupes=$(gh api -X GET search/issues -f q="repo:$r is:issue is:open in:title $title" --jq '.items[:5][] | "  #\(.number)\t\(.title)\tball: \(.assignees[0].login // "-")"' 2>/dev/null || true)
+    if [[ -n "$dupes" ]]; then
+      echo "Possible duplicates — reply to one of these instead, or re-run with --force:" >&2
+      echo "$dupes" >&2
+      exit 2
+    fi
+  fi
+  local body; body=$(read_body "${args[@]+"${args[@]}"}")
+  body=$(printf '%s\n\n→ @%s' "$body" "$to")
+  gh issue create -R "$r" --title "$title" --body "$body" --assignee "$to"
+}
+
+cmd_reply() {
+  local n="" to="" args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --to) to=$(norm_to "$2"); shift 2;;
+      *) if [[ -z "$n" ]]; then n=${1#\#}; else args+=("$1"); fi; shift;;
+    esac
+  done
+  [[ -n "$n" ]] || die "usage: comms reply N --to @who [body]"
+  [[ -n "$to" ]] || die "--to is required (whose turn is it next? use --to @me to keep it)"
+  local body; body=$(read_body "${args[@]+"${args[@]}"}")
+  [[ -n "$body" ]] || die "empty body"
+  body=$(printf '%s\n\n→ @%s' "$body" "$to")
+  gh issue comment "$n" -R "$(repo)" --body "$body" >/dev/null
+  set_ball "$n" "$to"
+  echo "#$n → @$to"
+}
+
+cmd_block() {
+  local n=${1#\#}; [[ "${2:-}" == "--on" && -n "${3:-}" ]] || die "usage: comms block N --on M"
+  local m=${3#\#} r id; r=$(repo)
+  id=$(gh api "repos/$r/issues/$m" --jq .id)
+  gh api -X POST "repos/$r/issues/$n/dependencies/blocked_by" -F issue_id="$id" >/dev/null
+  echo "#$n is blocked by #$m"
+}
+
+cmd_close() {
+  local n=${1#\#}; shift || true
+  local reason; reason=$(read_body "$@")
+  [[ -n "$n" ]] || die "usage: comms close N [reason]"
+  if [[ -n "$reason" ]]; then gh issue close "$n" -R "$(repo)" -c "Closed: $reason"
+  else gh issue close "$n" -R "$(repo)"; fi
+}
+
+cmd_hook() {
+  # Never fail or block a session start.
+  local ready inbox
+  ready=$(cmd_ready 2>/dev/null) || exit 0
+  inbox=$(cmd_inbox --peek 2>/dev/null | wc -l | tr -d ' ') || inbox=0
+  [[ -z "$ready" && "$inbox" == "0" ]] && exit 0
+  echo "## repo-comms: messages for $(me)"
+  if [[ -n "$ready" ]]; then
+    echo "Threads waiting on you (your turn):"
+    echo "$ready"
+  fi
+  [[ "$inbox" != "0" ]] && echo "$inbox thread(s) changed since you last checked — run: .comms/comms inbox"
+  echo "Read with: .comms/comms show N. Reply with: .comms/comms reply N --to @who \"...\". Tell the user these are waiting before starting other work."
+}
+
+# Run by the GitHub Action. Keeps the ball valid when people post from the web UI.
+cmd_action() {
+  local ev=${GITHUB_EVENT_PATH:?} name=${GITHUB_EVENT_NAME:?}
+  local r=${GITHUB_REPOSITORY:?}
+  local n author text assignees state
+  n=$(jq -r .issue.number "$ev")
+  assignees=$(jq -r '[.issue.assignees[].login] | join(" ")' "$ev")
+  state=$(jq -r .issue.state "$ev")
+  [[ "$state" == "open" ]] || exit 0
+  if [[ "$name" == "issue_comment" ]]; then
+    author=$(jq -r .comment.user.login "$ev"); text=$(jq -r .comment.body "$ev")
+  else
+    author=$(jq -r .issue.user.login "$ev"); text=$(jq -r '.issue.body // ""' "$ev")
+  fi
+  [[ "$author" == *"[bot]" ]] && exit 0
+
+  # Last handoff line wins: "→ @x", "-> @x", or "/ball @x". "@me" = the author.
+  local to
+  to=$(printf '%s\n' "$text" | grep -oE '^[[:space:]]*(→|->|/ball)[[:space:]]*@[A-Za-z0-9-]+' | tail -1 | grep -oE '@[A-Za-z0-9-]+' | tr -d @ || true)
+  [[ "$to" == "me" ]] && to=$author
+
+  if [[ -z "$to" ]]; then
+    if [[ "$name" == "issues" ]]; then
+      [[ -z "$assignees" ]] && to=$author || exit 0
+    elif [[ " $assignees " == *" $author "* ]]; then
+      # Reply with no handoff: ball goes back to whoever handed it to you.
+      # "Whoever handed it to you" = the latest other human author in the thread.
+      local opener; opener=$(jq -r .issue.user.login "$ev")
+      to=$(gh api "repos/$r/issues/$n/comments?per_page=100" --jq \
+        "[.[] | .user.login | select(. != \"$author\" and (endswith(\"[bot]\")|not))] | last // empty")
+      [[ -z "$to" && "$opener" != "$author" ]] && to=$opener
+      [[ -z "$to" ]] && exit 0
+    else
+      [[ -z "$assignees" ]] && to=$author || exit 0
+    fi
+  fi
+  [[ "$assignees" == "$to" ]] && exit 0
+  if ! gh api -X PATCH "repos/$r/issues/$n" -f "assignees[]=$to" >/dev/null 2>&1; then
+    gh issue comment "$n" -R "$r" --body "⚠️ repo-comms couldn't hand the ball to @$to (no repo access?). Ball unchanged." >/dev/null
+  fi
+}
+
+case "${1:-}" in
+  ready) shift; cmd_ready "$@";;
+  inbox) shift; cmd_inbox "$@";;
+  waiting) shift; cmd_waiting "$@";;
+  show) shift; cmd_show "$@";;
+  open) shift; cmd_open "$@";;
+  reply) shift; cmd_reply "$@";;
+  block) shift; cmd_block "$@";;
+  close) shift; cmd_close "$@";;
+  hook) shift; cmd_hook "$@";;
+  _action) shift; cmd_action "$@";;
+  version|--version) echo "$VERSION";;
+  ""|-h|--help|help) usage;;
+  *) die "unknown command '$1' (try: comms help)";;
+esac
