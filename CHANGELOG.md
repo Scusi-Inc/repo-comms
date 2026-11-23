@@ -2,6 +2,10 @@
 
 Update a repo with `.wallnote/wallnote update`. It keeps your team settings. Commit the result.
 
+## 0.3.4
+- Fix: `wallnote update` no longer ends with a bogus syntax error. The installer replaces files by
+  rename, and the script runs from `main()` so it never reads past its last line.
+
 ## 0.3.3
 - No setup questions: wallnote turns on with safe defaults (notify; check on prompt and task end)
   the first time someone's agent starts, and the agent tells them once how to change it.

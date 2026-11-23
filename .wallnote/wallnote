@@ -3,7 +3,7 @@
 # Needs only `gh` (logged in). Works with bash 3.2+ (macOS). See .wallnote/PROTOCOL.md.
 set -euo pipefail
 
-VERSION=0.3.3
+VERSION=0.3.4
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 die() { echo "wallnote: $*" >&2; exit 1; }
@@ -592,11 +592,17 @@ cmd_action() {
   [[ -n "$role" ]] && gh api -X POST "repos/$r/issues/$n/labels" -f "labels[]=role:$role" >/dev/null || true
 }
 
-case "${1:-}" in
-  ready|inbox|waiting|show|open|reply|ack|progress|block|close|settings|setup|role|hook|check|update)
-    c=$1; shift; "cmd_$c" "$@";;
-  _action) shift; cmd_action "$@";;
-  version|--version) echo "$VERSION";;
-  ""|-h|--help|help) usage;;
-  *) die "unknown command '$1' (try: wallnote help)";;
-esac
+# Everything runs from main, and the last line exits: bash has read the whole file before any
+# command runs, so `wallnote update` replacing this file mid-run can't make bash read garbage.
+main() {
+  case "${1:-}" in
+    ready|inbox|waiting|show|open|reply|ack|progress|block|close|settings|setup|role|hook|check|update)
+      c=$1; shift; "cmd_$c" "$@";;
+    _action) shift; cmd_action "$@";;
+    version|--version) echo "$VERSION";;
+    ""|-h|--help|help) usage;;
+    *) die "unknown command '$1' (try: wallnote help)";;
+  esac
+}
+
+main "$@"; exit $?

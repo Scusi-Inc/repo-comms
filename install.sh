@@ -9,8 +9,14 @@ gh api "repos/$SRC" --jq .full_name >/dev/null 2>&1 || { echo "wallnote: can't r
 cd "$root"
 
 fetch() { # src-path dest-path
+  # Write to a temp file, then rename. A rename swaps in a new file, so a running copy of
+  # .wallnote/wallnote (e.g. the one executing `wallnote update`) keeps reading the old one intact.
   mkdir -p "$(dirname "$2")"
-  gh api "repos/$SRC/contents/$1?ref=$REF" --jq .content | base64 -d > "$2"
+  local tmp="$2.tmp.$$"
+  gh api "repos/$SRC/contents/$1?ref=$REF" --jq .content | base64 -d > "$tmp"
+  [[ -s "$tmp" ]] || { rm -f "$tmp"; echo "wallnote: failed to download $1" >&2; exit 1; }
+  [[ -f "$2" && -x "$2" ]] && chmod +x "$tmp"
+  mv -f "$tmp" "$2"
 }
 
 fetch .wallnote/wallnote .wallnote/wallnote && chmod +x .wallnote/wallnote
