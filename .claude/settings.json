@@ -1,11 +1,13 @@
 {
   "hooks": {
     "SessionStart": [
-      {
-        "hooks": [
-          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.wallnote/wallnote\" hook", "timeout": 15 }
-        ]
-      }
+      { "hooks": [ { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.wallnote/wallnote\" hook session", "timeout": 15 } ] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.wallnote/wallnote\" hook prompt", "timeout": 10 } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.wallnote/wallnote\" hook stop", "timeout": 10 } ] }
     ]
   }
 }

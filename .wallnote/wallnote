@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# wallnote — whose-turn-is-it messaging on GitHub Issues.
-# Needs only `gh` (authenticated). See .wallnote/PROTOCOL.md.
+# wallnote: whose-turn-is-it messaging for people and agents, on GitHub Issues.
+# Needs only `gh` (logged in). Works with bash 3.2+ (macOS). See .wallnote/PROTOCOL.md.
 set -euo pipefail
 
-VERSION=0.1.0
+VERSION=0.2.0
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 die() { echo "wallnote: $*" >&2; exit 1; }
+
+# ---------- context ----------
 
 repo() {
   if [[ -n "${GH_REPO:-}" ]]; then echo "$GH_REPO"; return; fi
@@ -14,64 +17,161 @@ repo() {
   echo "$url"
 }
 
+_ME=""
 me() {
   if [[ -n "${WALLNOTE_ME:-}" ]]; then echo "$WALLNOTE_ME"; return; fi
-  gh api user --jq .login
+  [[ -n "$_ME" ]] || _ME=$(gh api user --jq .login)
+  echo "$_ME"
 }
 
-cursor_file() { echo "$(git rev-parse --git-dir)/wallnote-last-seen"; }
+gitdir()    { git rev-parse --git-dir; }          # per worktree
+commondir() { git rev-parse --git-common-dir; }   # per clone
 
-# Read a body from the remaining args, or stdin if none / "-".
+# ---------- settings ----------
+# Team (committed):    .wallnote/config        key = value
+# Personal (local):    <git-common-dir>/wallnote.conf
+# Role (per worktree): <git-dir>/wallnote-role
+
+conf_get() { # file key default
+  local v=""
+  [[ -f "$1" ]] && v=$(grep -E "^[[:space:]]*$2[[:space:]]*=" "$1" | tail -1 | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]*(#.*)?$//') || true
+  [[ -n "$v" ]] && echo "$v" || echo "$3"
+}
+conf_set() { # file key value
+  local f=$1 tmp; touch "$f"; tmp="$f.tmp.$$"
+  grep -vE "^[[:space:]]*$2[[:space:]]*=" "$f" > "$tmp" || true
+  echo "$2 = $3" >> "$tmp"; mv "$tmp" "$f"
+}
+
+rules_text() { [[ -f "$HERE/rules.md" ]] && sed '/<!--/,/-->/d' "$HERE/rules.md" | grep -v '^[[:space:]]*$' || true; }
+team()     { conf_get "$HERE/config" "$1" "$2"; }
+personal_file() { echo "$(commondir)/wallnote.conf"; }
+personal() { conf_get "$(personal_file)" "$1" "$2"; }
+my_role()  { cat "$(gitdir)/wallnote-role" 2>/dev/null || true; }
+
+level_num() { case "$1" in notify) echo 1;; ack) echo 2;; act) echo 3;; *) echo 1;; esac; }
+autonomy() { # effective: min(personal, team max)
+  local p t; p=$(personal autonomy notify); t=$(team max_autonomy act)
+  if [[ $(level_num "$p") -le $(level_num "$t") ]]; then echo "$p"; else echo "$t"; fi
+}
+
+# ---------- helpers ----------
+
 read_body() {
   if [[ $# -gt 0 && "$1" != "-" ]]; then printf '%s' "$*"
   elif [[ ! -t 0 ]]; then cat
   else echo ""; fi
 }
 
-norm_to() { local t=${1#@}; [[ "$t" == "me" ]] && t=$(me); echo "$t"; }
+# "@alice", "@alice/frontend", "@me", "@me/backend" -> sets TO_USER and TO_ROLE
+parse_to() {
+  local t=${1#@}; TO_USER=${t%%/*}; TO_ROLE=""
+  [[ "$t" == */* ]] && TO_ROLE=${t#*/}
+  [[ "$TO_USER" == "me" ]] && TO_USER=$(me)
+  if [[ -n "$TO_ROLE" ]]; then
+    local roles; roles=$(team roles "")
+    if [[ -n "$roles" && " $roles " != *" $TO_ROLE "* ]]; then
+      die "unknown role '$TO_ROLE' (team roles: $roles; see .wallnote/config)"
+    fi
+  fi
+  return 0
+}
+
+json_escape() {
+  local s=$1; s=${s//\\/\\\\}; s=${s//\"/\\\"}; s=${s//$'\t'/\\t}; s=${s//$'\r'/}; s=${s//$'\n'/\\n}
+  printf '%s' "$s"
+}
+
+signature() {
+  local r; r=$(my_role)
+  printf '<sub>via wallnote · @%s%s</sub>' "$(me)" "${r:+/$r}"
+}
+
+labels_of() { gh api "repos/$(repo)/issues/$1" --jq '[.labels[].name] | join(" ")'; }
+
+# Set the ball: single assignee, one role:* label (or none), clear ack labels.
+set_ball() { # issue user role
+  local r n=$1 u=$2 role=${3:-} l; r=$(repo)
+  gh api -X PATCH "repos/$r/issues/$n" -f "assignees[]=$u" >/dev/null || die "couldn't assign @$u (do they have access to $r?)"
+  for l in $(labels_of "$n"); do
+    case "$l" in role:*|acked*) [[ "$l" == "role:$role" ]] || gh api -X DELETE "repos/$r/issues/$n/labels/$l" >/dev/null 2>&1 || true;; esac
+  done
+  [[ -n "$role" ]] && gh api -X POST "repos/$r/issues/$n/labels" -f "labels[]=role:$role" >/dev/null
+  return 0
+}
+
+# Is this GitHub user allowed to message us?
+_PERMS="|"
+allowed() {
+  [[ "$(team allowed_authors collaborators)" == "anyone" ]] && return 0
+  local u=$1 p
+  case "$u" in *"[bot]") return 1;; esac
+  case "$_PERMS" in *"|$u:"*) p=${_PERMS#*|$u:}; p=${p%%|*};;
+    *) p=$(gh api "repos/$(repo)/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+       _PERMS="$_PERMS$u:$p|";; esac
+  [[ "$p" == admin || "$p" == maintain || "$p" == write || "$p" == triage ]]
+}
+
+# jq filter: keep issues for me (+ my role, if I have one)
+ROLE_FILTER='| map(select(([.labels[].name | select(startswith("role:")) | ltrimstr("role:")]) as $rl
+  | ($rl|length)==0 or $role=="" or ($rl|index($role))))'
+
+# ---------- commands ----------
 
 usage() {
   cat <<'EOF'
-wallnote — threads with a ball. Every open thread is waiting on exactly one person.
+wallnote: threads with a ball. Every open thread is waiting on exactly one person.
 
-  wallnote ready                       threads waiting on you, not blocked (do these)
-  wallnote inbox [--peek]              what changed since you last looked
-  wallnote waiting                     every open thread, grouped by who holds the ball
-  wallnote show N                      read a thread
-  wallnote open "title" --to @who [body|-] [--force]
-                                    start a thread (warns on likely duplicates)
-  wallnote reply N --to @who [body|-]  post, and hand the ball to @who (@me keeps it)
-  wallnote block N --on M              thread N can't move until M is closed
-  wallnote close N [reason]            close a thread; say what was decided
-  wallnote hook                        session-start summary (used by agent hooks)
+Reading
+  wallnote ready                 threads waiting on you (and your role), not blocked
+  wallnote check                 anything NEW for you since the last check (quiet if not)
+  wallnote show N                read a thread (only allowed authors are shown)
+  wallnote waiting               every open thread, grouped by who holds the ball
+  wallnote inbox [--peek]        everything that changed since you last looked
 
-Body comes from args or stdin. --to is required: you can't post and leave the ball nowhere.
+Writing (every post says whose turn is next)
+  wallnote open "title" --to @who[/role] [body|-] [--force]
+  wallnote reply N --to @who[/role] [body|-]       hand the ball on (@me keeps it)
+  wallnote ack N [note]                            "got it, on it"; you keep the ball
+  wallnote progress N "update"                     status update; you keep the ball
+  wallnote block N --on M                          N can't move until M is closed
+  wallnote close N "what was decided and why"
+
+Settings
+  wallnote settings              show team + personal settings
+  wallnote setup --autonomy notify|ack|act --check prompt,stop|prompt|stop|session [--role R]
+  wallnote role [R|--clear]      this agent's role (per working copy)
 EOF
 }
 
 cmd_ready() {
-  local r u; r=$(repo); u=$(me)
-  gh api "repos/$r/issues?state=open&assignee=$u&per_page=100" --jq '
-    map(select(.pull_request|not))
+  local r u role; r=$(repo); u=$(me); role=$(my_role)
+  gh api "repos/$r/issues?state=open&assignee=$u&per_page=100" --jq "
+    (\"$role\") as \$role | map(select(.pull_request|not)) $ROLE_FILTER
     | map(select((.issue_dependencies_summary.blocked_by // 0) == 0))
     | sort_by(.updated_at)
-    | .[] | "#\(.number)\t\(.title)\t(\(((now - (.updated_at|fromdate))/3600|floor))h since last activity)"'
+    | .[] | \"#\(.number)\t\(.title)\"
+      + ([.labels[].name | select(startswith(\"role:\"))] | if length>0 then \"\t[\(join(\",\"))]\" else \"\" end)
+      + ([.labels[].name | select(startswith(\"acked\"))] | if length>0 then \"\t[\(.[0])]\" else \"\" end)
+      + \"\t(\(((now - (.updated_at|fromdate))/3600|floor))h)\""
 }
 
 cmd_waiting() {
   local r; r=$(repo)
   gh api "repos/$r/issues?state=open&per_page=100" --jq '
     map(select(.pull_request|not))
-    | group_by(.assignees[0].login // "~NOBODY~")
-    | .[] | "\n== waiting on \(.[0].assignees[0].login // "NOBODY (fix this)") ==",
+    | map(. + {who: ((.assignees[0].login // "NOBODY (fix this)") + ([.labels[].name | select(startswith("role:")) | ltrimstr("role:")] | if length>0 then "/" + .[0] else "" end))})
+    | group_by(.who)
+    | .[] | "\n== waiting on \(.[0].who) ==",
       (sort_by(.updated_at) | .[] |
         "  #\(.number)\t\(.title)\t\(((now - (.updated_at|fromdate))/3600|floor))h"
-        + (if (.issue_dependencies_summary.blocked_by // 0) > 0 then "\t[blocked]" else "" end))'
+        + (if (.issue_dependencies_summary.blocked_by // 0) > 0 then "\t[blocked]" else "" end)
+        + ([.labels[].name | select(startswith("acked"))] | if length>0 then "\t[acked]" else "" end))'
 }
 
 cmd_inbox() {
   local peek=0; [[ "${1:-}" == "--peek" ]] && peek=1
-  local r u cf since now_ts; r=$(repo); u=$(me); cf=$(cursor_file)
+  local r u cf since now_ts; r=$(repo); u=$(me); cf="$(gitdir)/wallnote-last-seen"
   since=$(cat "$cf" 2>/dev/null || echo "1970-01-01T00:00:00Z")
   now_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   gh api -X GET search/issues -f q="repo:$r is:issue involves:$u updated:>$since" -f sort=updated -f per_page=50 --jq '
@@ -79,30 +179,39 @@ cmd_inbox() {
   [[ $peek -eq 1 ]] || echo "$now_ts" > "$cf"
 }
 
-cmd_show() { [[ -n "${1:-}" ]] || die "usage: wallnote show N"; gh issue view "$1" -R "$(repo)" --comments; }
-
-set_ball() { # issue login
-  gh api -X PATCH "repos/$(repo)/issues/$1" --input - >/dev/null <<EOF
-{"assignees":["$2"]}
-EOF
+cmd_show() {
+  local n=${1#\#}; [[ -n "$n" ]] || die "usage: wallnote show N"
+  local r line author hidden=0; r=$(repo)
+  gh api "repos/$r/issues/$n" --jq '"#\(.number) \(.title)  [\(.state)]  ball: @\(.assignees[0].login // "-")\(.labels | map(.name) | map(select(startswith("role:"))) | if length>0 then " " + join(",") else "" end)\n"'
+  # Body + comments as records separated by \x1e so each author can be checked.
+  local rec
+  while IFS= read -r -d $'\x1e' rec; do
+    rec=${rec#$'\n'}; author=${rec%%$'\t'*}
+    if allowed "$author"; then printf '%s\n\n' "${rec#*$'\t'}"; else hidden=$((hidden+1)); fi
+  done < <(
+    gh api "repos/$r/issues/$n" --jq '[.user.login, "--- @\(.user.login), \(.created_at) (opened)\n\(.body // "")"] | join("\t") + "\u001e"'
+    gh api --paginate "repos/$r/issues/$n/comments?per_page=100" --jq '.[] | [.user.login, "--- @\(.user.login), \(.created_at)\n\(.body)"] | join("\t") + "\u001e"'
+  )
+  [[ $hidden -gt 0 ]] && echo "($hidden post(s) hidden: not from repo collaborators)"
+  return 0
 }
 
 cmd_open() {
   local title="" to="" force=0 args=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --to) to=$(norm_to "$2"); shift 2;;
+      --to) to=$2; shift 2;;
       --force) force=1; shift;;
       *) if [[ -z "$title" ]]; then title=$1; else args+=("$1"); fi; shift;;
     esac
   done
-  [[ -n "$title" ]] || die "usage: wallnote open \"title\" --to @who [body]"
+  [[ -n "$title" ]] || die "usage: wallnote open \"title\" --to @who[/role] [body]"
   [[ -n "$to" ]] || die "--to is required (whose turn is it?)"
+  parse_to "$to"
   local r; r=$(repo)
   if [[ $force -eq 0 ]]; then
-    local dupes
-    # Compare significant title words against recent open threads (search indexing lags).
     local qt=${title//\\/\\\\}; qt=${qt//\"/\\\"}
+    local dupes
     dupes=$(gh api "repos/$r/issues?state=open&sort=updated&per_page=100" --jq '
       def words: ascii_downcase | [scan("[a-z0-9]{3,}")] | map(select(IN("the","and","for","with","this","that","does","from","test")|not)) | unique;
       ("'"$qt"'"|words) as $w
@@ -112,32 +221,56 @@ cmd_open() {
           | select(($w|length) > 0 and $hit * 2 >= ([($w|length),($v|length)]|min) and $hit > 0))
       | .[:5][] | "  #\(.number)\t\(.title)\tball: \(.assignees[0].login // "-")"' 2>/dev/null || true)
     if [[ -n "$dupes" ]]; then
-      echo "Possible duplicates — reply to one of these instead, or re-run with --force:" >&2
+      echo "Possible duplicates. Reply to one of these instead, or re-run with --force:" >&2
       echo "$dupes" >&2
       exit 2
     fi
   fi
-  local body; body=$(read_body "${args[@]+"${args[@]}"}")
-  body=$(printf '%s\n\n→ @%s' "$body" "$to")
-  gh issue create -R "$r" --title "$title" --body "$body" --assignee "$to"
+  local body url n; body=$(read_body "${args[@]+"${args[@]}"}")
+  body=$(printf '%s\n\n→ @%s%s\n\n%s' "$body" "$TO_USER" "${TO_ROLE:+/$TO_ROLE}" "$(signature)")
+  url=$(gh issue create -R "$r" --title "$title" --body "$body" --assignee "$TO_USER")
+  n=${url##*/}
+  [[ -n "$TO_ROLE" ]] && set_ball "$n" "$TO_USER" "$TO_ROLE"
+  echo "$url"
+}
+
+post() { # issue body
+  gh issue comment "$1" -R "$(repo)" --body "$2" >/dev/null
 }
 
 cmd_reply() {
   local n="" to="" args=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --to) to=$(norm_to "$2"); shift 2;;
+      --to) to=$2; shift 2;;
       *) if [[ -z "$n" ]]; then n=${1#\#}; else args+=("$1"); fi; shift;;
     esac
   done
-  [[ -n "$n" ]] || die "usage: wallnote reply N --to @who [body]"
-  [[ -n "$to" ]] || die "--to is required (whose turn is it next? use --to @me to keep it)"
+  [[ -n "$n" ]] || die "usage: wallnote reply N --to @who[/role] [body]"
+  [[ -n "$to" ]] || die "--to is required (whose turn is next? --to @me keeps it)"
+  parse_to "$to"
   local body; body=$(read_body "${args[@]+"${args[@]}"}")
   [[ -n "$body" ]] || die "empty body"
-  body=$(printf '%s\n\n→ @%s' "$body" "$to")
-  gh issue comment "$n" -R "$(repo)" --body "$body" >/dev/null
-  set_ball "$n" "$to"
-  echo "#$n → @$to"
+  post "$n" "$(printf '%s\n\n→ @%s%s\n\n%s' "$body" "$TO_USER" "${TO_ROLE:+/$TO_ROLE}" "$(signature)")"
+  set_ball "$n" "$TO_USER" "$TO_ROLE"
+  echo "#$n → @$TO_USER${TO_ROLE:+/$TO_ROLE}"
+}
+
+cmd_ack() {
+  local n=${1#\#}; shift || true
+  [[ -n "$n" ]] || die "usage: wallnote ack N [note]"
+  local note; note=$(read_body "$@"); local role; role=$(my_role)
+  post "$n" "$(printf '**ack**: got it, on it.%s\n\n→ @me\n\n%s' "${note:+ $note}" "$(signature)")"
+  gh api -X POST "repos/$(repo)/issues/$n/labels" -f "labels[]=acked${role:+:$role}" >/dev/null
+  echo "#$n acked"
+}
+
+cmd_progress() {
+  local n=${1#\#}; shift || true
+  local body; body=$(read_body "$@")
+  [[ -n "$n" && -n "$body" ]] || die "usage: wallnote progress N \"update\""
+  post "$n" "$(printf '**progress**: %s\n\n→ @me\n\n%s' "$body" "$(signature)")"
+  echo "#$n updated"
 }
 
 cmd_block() {
@@ -151,53 +284,206 @@ cmd_block() {
 cmd_close() {
   local n=${1#\#}; shift || true
   local reason; reason=$(read_body "$@")
-  [[ -n "$n" ]] || die "usage: wallnote close N [reason]"
-  if [[ -n "$reason" ]]; then gh issue close "$n" -R "$(repo)" -c "Closed: $reason"
+  [[ -n "$n" ]] || die "usage: wallnote close N \"what was decided\""
+  if [[ -n "$reason" ]]; then gh issue close "$n" -R "$(repo)" -c "Closed: $reason"$'\n\n'"$(signature)"
   else gh issue close "$n" -R "$(repo)"; fi
 }
 
-cmd_hook() {
-  # Never fail or block a session start.
-  local ready inbox
-  ready=$(cmd_ready 2>/dev/null) || exit 0
-  inbox=$(cmd_inbox --peek 2>/dev/null | wc -l | tr -d ' ') || inbox=0
-  [[ -z "$ready" && "$inbox" == "0" ]] && exit 0
-  echo "## wallnote: messages for $(me)"
-  if [[ -n "$ready" ]]; then
-    echo "Threads waiting on you (your turn):"
-    echo "$ready"
+# ---------- settings commands ----------
+
+cmd_settings() {
+  local pf; pf=$(personal_file)
+  echo "Team (.wallnote/config, shared):"
+  echo "  allowed_authors = $(team allowed_authors collaborators)"
+  echo "  max_autonomy    = $(team max_autonomy act)"
+  echo "  roles           = $(team roles '(any)')"
+  echo "  forbid          = $(team forbid '(nothing)')"
+  [[ -n "$(rules_text)" ]] && echo "  + free-text rules in .wallnote/rules.md"
+  echo "Personal ($pf):"
+  if [[ -f "$pf" ]] && grep -q autonomy "$pf"; then
+    echo "  autonomy = $(personal autonomy notify)  (effective: $(autonomy))"
+    echo "  check    = $(personal check prompt,stop)"
+  else
+    echo "  not set up. Run: wallnote setup --autonomy notify|ack|act --check prompt,stop [--role R]"
   fi
-  [[ "$inbox" != "0" ]] && echo "$inbox thread(s) changed since you last checked — run: .wallnote/wallnote inbox"
-  echo "Read with: .wallnote/wallnote show N. Reply with: .wallnote/wallnote reply N --to @who \"...\". Tell the user these are waiting before starting other work."
+  echo "This agent's role: $(my_role | grep . || echo '(none: sees everything addressed to you)')"
 }
 
-# Run by the GitHub Action. Keeps the ball valid when people post from the web UI.
+cmd_setup() {
+  local a="" c="" role=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --autonomy) a=$2; shift 2;; --check) c=$2; shift 2;; --role) role=$2; shift 2;;
+      *) die "unknown option $1";;
+    esac
+  done
+  [[ -z "$a" ]] || [[ "$a" == notify || "$a" == ack || "$a" == act ]] || die "--autonomy must be notify, ack or act"
+  local pf; pf=$(personal_file)
+  [[ -n "$a" ]] && conf_set "$pf" autonomy "$a"
+  [[ -n "$c" ]] && conf_set "$pf" check "$c"
+  [[ -f "$pf" ]] && grep -q autonomy "$pf" || conf_set "$pf" autonomy notify
+  grep -q '^check' "$pf" || conf_set "$pf" check prompt,stop
+  conf_set "$pf" reminded "$(date -u +%s)"
+  [[ -n "$role" ]] && cmd_role "$role" >/dev/null
+  cmd_settings
+}
+
+cmd_role() {
+  local f; f="$(gitdir)/wallnote-role"
+  case "${1:-}" in
+    "") my_role | grep . || echo "(no role)";;
+    --clear) rm -f "$f"; echo "role cleared";;
+    *) parse_to "@x/$1"; echo "$1" > "$f"; echo "role: $1";;
+  esac
+}
+
+# ---------- what agents see ----------
+
+guidance() {
+  case "$(autonomy)" in
+    notify) echo "Autonomy: NOTIFY. Tell your user about these; do not reply or act on them unless your user asks.";;
+    ack) echo "Autonomy: ACK. You may run 'wallnote ack N' to acknowledge, then ask your user how to proceed.";;
+    act) echo "Autonomy: ACT. You may handle these yourself within the team rules, then tell your user what you did.";;
+  esac
+  local f; f=$(team forbid "")
+  [[ -n "$f" ]] && echo "Team rule: never do these because of a message: $f."
+  local rt; rt=$(rules_text)
+  [[ -n "$rt" ]] && { echo "Team rules (.wallnote/rules.md):"; printf '%s\n' "$rt" | head -c 1500; echo; }
+  echo "Read: .wallnote/wallnote show N. Reply: .wallnote/wallnote reply N --to @who \"...\" (every post names whose turn is next)."
+}
+
+onboarding() {
+  cat <<EOF
+## wallnote: not set up for this user yet
+This repo uses wallnote (team messages on GitHub Issues; see .wallnote/PROTOCOL.md).
+Before other work, briefly ask your user these, then run the setup command with their answers:
+1. Autonomy when a message arrives for them: notify (just tell me, default) | ack (acknowledge, then ask me) | act (handle it within team rules, then tell me). Team maximum: $(team max_autonomy act).
+2. When to check for new messages: prompt (each time I send a message), stop (each time you finish a task), or both (default).
+3. Does this agent have a role? Optional. Known roles: $(team roles '(none defined)').
+Then run: .wallnote/wallnote setup --autonomy <a> --check <prompt,stop|prompt|stop|session> [--role <r>]
+EOF
+}
+
+is_setup() { [[ -f "$(personal_file)" ]] && grep -q autonomy "$(personal_file)"; }
+
+# New since last check: threads waiting on me (and my role) touched by someone else.
+new_for_me() {
+  local r u role cf since now_ts; r=$(repo); u=$(me); role=$(my_role)
+  cf="$(gitdir)/wallnote-checked"; now_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  since=$(cat "$cf" 2>/dev/null || echo "")
+  echo "$now_ts" > "$cf"
+  [[ -z "$since" ]] && return 0   # first run: session start covers the backlog
+  # Notifications only cover other people's activity, so my own posts never wake me.
+  local nums; nums=$(gh api "repos/$r/notifications?all=true&since=$since" --jq '.[] | select(.subject.type=="Issue") | .subject.url | split("/") | last' 2>/dev/null | sort -u) || return 0
+  [[ -z "$nums" ]] && return 0
+  local n
+  local cnt last
+  for n in $nums; do
+    # Skip threads where the latest post is mine (e.g. the Action re-assigning my own reply).
+    cnt=$(gh api "repos/$r/issues/$n" --jq .comments 2>/dev/null || echo 0)
+    if [[ "$cnt" -gt 0 ]]; then last=$(gh api "repos/$r/issues/$n/comments?per_page=1&page=$cnt" --jq '.[0].user.login' 2>/dev/null || true)
+    else last=$(gh api "repos/$r/issues/$n" --jq .user.login 2>/dev/null || true); fi
+    [[ "$last" == "$u" ]] && continue
+    allowed "$last" || continue
+    gh api "repos/$r/issues/$n" --jq "
+      (\"$role\") as \$role | [.] | map(select(.state==\"open\" and (.assignees|map(.login)|index(\"$u\")))) $ROLE_FILTER
+      | .[] | \"#\(.number)\t\(.title)\" + (if (.issue_dependencies_summary.blocked_by // 0) > 0 then \"\t[blocked]\" else \"\" end)" 2>/dev/null || true
+  done
+}
+
+remind_line() {
+  local last; last=$(personal reminded 0); local now; now=$(date -u +%s)
+  if [[ $((now - last)) -gt 604800 ]]; then
+    conf_set "$(personal_file)" reminded "$now"
+    echo "(wallnote settings: autonomy=$(autonomy), check=$(personal check prompt,stop)$( [[ -n "$(my_role)" ]] && echo ", role=$(my_role)"). Mention to your user once that they can change these: .wallnote/wallnote settings)"
+  fi
+}
+
+# Hook entry point. Never fails, never blocks a session.
+cmd_hook() {
+  local event=${1:-session} input="" checks
+  [[ -t 0 ]] || input=$(cat || true)
+  git rev-parse --git-dir >/dev/null 2>&1 || exit 0
+  if ! is_setup; then
+    [[ "$event" == "session" ]] && onboarding
+    exit 0
+  fi
+  checks=$(personal check prompt,stop)
+  case "$event" in
+    session)
+      local ready; ready=$(cmd_ready 2>/dev/null) || exit 0
+      new_for_me >/dev/null 2>&1 || true   # reset "new" cursor
+      local rem; rem=$(remind_line)
+      [[ -z "$ready" && -z "$rem" ]] && exit 0
+      if [[ -n "$ready" ]]; then
+        echo "## wallnote: waiting on @$(me)$( [[ -n "$(my_role)" ]] && echo "/$(my_role)")"
+        echo "$ready"; guidance
+      fi
+      [[ -n "$rem" ]] && echo "$rem"
+      ;;
+    prompt|stop)
+      [[ ",$checks," == *",$event,"* ]] || exit 0
+      # Stop hook re-entry guard.
+      [[ "$event" == "stop" && "$input" == *'"stop_hook_active":true'* ]] && exit 0
+      local new; new=$(new_for_me 2>/dev/null) || exit 0
+      [[ -z "$new" ]] && exit 0
+      local msg; msg=$(printf '## wallnote: new for @%s\n%s\n%s' "$(me)" "$new" "$(guidance)")
+      if [[ "$event" == "prompt" ]]; then
+        echo "$msg"
+      else
+        # Ask Claude to continue just long enough to surface the message.
+        printf '{"decision":"block","reason":"%s"}\n' "$(json_escape "$msg
+(Surface this to your user now, per the autonomy above.)")"
+      fi
+      ;;
+  esac
+  exit 0
+}
+
+# For agents without hooks (Codex, Cursor...): same as the stop check, printed plainly.
+cmd_check() {
+  is_setup || { onboarding; return 0; }
+  local new; new=$(new_for_me)
+  [[ -z "$new" ]] && { echo "nothing new"; return 0; }
+  echo "New for @$(me):"; echo "$new"; guidance
+}
+
+# ---------- GitHub Action ----------
+# Keeps the ball valid when people post from the GitHub UI.
 cmd_action() {
   local ev=${GITHUB_EVENT_PATH:?} name=${GITHUB_EVENT_NAME:?}
   local r=${GITHUB_REPOSITORY:?}
-  local n author text assignees state
+  local n author text assignees state assoc
   n=$(jq -r .issue.number "$ev")
   assignees=$(jq -r '[.issue.assignees[].login] | join(" ")' "$ev")
   state=$(jq -r .issue.state "$ev")
   [[ "$state" == "open" ]] || exit 0
   if [[ "$name" == "issue_comment" ]]; then
-    author=$(jq -r .comment.user.login "$ev"); text=$(jq -r .comment.body "$ev")
+    author=$(jq -r .comment.user.login "$ev"); text=$(jq -r .comment.body "$ev"); assoc=$(jq -r .comment.author_association "$ev")
   else
-    author=$(jq -r .issue.user.login "$ev"); text=$(jq -r '.issue.body // ""' "$ev")
+    author=$(jq -r .issue.user.login "$ev"); text=$(jq -r '.issue.body // ""' "$ev"); assoc=$(jq -r .issue.author_association "$ev")
   fi
   [[ "$author" == *"[bot]" ]] && exit 0
+  if [[ "$(team allowed_authors collaborators)" != "anyone" ]]; then
+    local perm; perm=$(gh api "repos/$r/collaborators/$author/permission" --jq .permission 2>/dev/null || echo "")
+    case "$perm" in admin|maintain|write|triage) ;; "") case "$assoc" in OWNER|MEMBER|COLLABORATOR) ;; *) echo "ignoring $author ($assoc)"; exit 0;; esac;;
+      *) echo "ignoring $author ($perm)"; exit 0;; esac
+  fi
 
-  # Last handoff line wins: "→ @x", "-> @x", or "/ball @x". "@me" = the author.
-  local to
-  to=$(printf '%s\n' "$text" | grep -oE '^[[:space:]]*(→|->|/ball)[[:space:]]*@[A-Za-z0-9-]+' | tail -1 | grep -oE '@[A-Za-z0-9-]+' | tr -d @ || true)
-  [[ "$to" == "me" ]] && to=$author
+  # Last handoff line wins: "→ @x", "-> @x", "/ball @x", optionally "@x/role". "@me" = the author.
+  local to="" role="" h
+  h=$(printf '%s\n' "$text" | grep -oE '^[[:space:]]*(→|->|/ball)[[:space:]]*@[A-Za-z0-9-]+(/[A-Za-z0-9_-]+)?' | tail -1 | grep -oE '@[A-Za-z0-9-]+(/[A-Za-z0-9_-]+)?' || true)
+  if [[ -n "$h" ]]; then
+    h=${h#@}; to=${h%%/*}; [[ "$h" == */* ]] && role=${h#*/}
+    [[ "$to" == "me" ]] && to=$author
+  fi
 
   if [[ -z "$to" ]]; then
     if [[ "$name" == "issues" ]]; then
       [[ -z "$assignees" ]] && to=$author || exit 0
     elif [[ " $assignees " == *" $author "* ]]; then
-      # Reply with no handoff: ball goes back to whoever handed it to you.
-      # "Whoever handed it to you" = the latest other human author in the thread.
+      # Reply with no handoff: ball goes back to whoever you're answering
+      # (the latest other human in the thread, else the opener).
       local opener; opener=$(jq -r .issue.user.login "$ev")
       to=$(gh api "repos/$r/issues/$n/comments?per_page=100" --jq \
         "[.[] | .user.login | select(. != \"$author\" and (endswith(\"[bot]\")|not))] | last // empty")
@@ -207,22 +493,21 @@ cmd_action() {
       [[ -z "$assignees" ]] && to=$author || exit 0
     fi
   fi
-  [[ "$assignees" == "$to" ]] && exit 0
+
   if ! gh api -X PATCH "repos/$r/issues/$n" -f "assignees[]=$to" >/dev/null 2>&1; then
     gh issue comment "$n" -R "$r" --body "⚠️ wallnote couldn't hand the ball to @$to (no repo access?). Ball unchanged." >/dev/null
+    exit 0
   fi
+  local l
+  for l in $(gh api "repos/$r/issues/$n" --jq '[.labels[].name] | join(" ")'); do
+    case "$l" in role:*|acked*) [[ "$l" == "role:$role" ]] || gh api -X DELETE "repos/$r/issues/$n/labels/$l" >/dev/null 2>&1 || true;; esac
+  done
+  [[ -n "$role" ]] && gh api -X POST "repos/$r/issues/$n/labels" -f "labels[]=role:$role" >/dev/null || true
 }
 
 case "${1:-}" in
-  ready) shift; cmd_ready "$@";;
-  inbox) shift; cmd_inbox "$@";;
-  waiting) shift; cmd_waiting "$@";;
-  show) shift; cmd_show "$@";;
-  open) shift; cmd_open "$@";;
-  reply) shift; cmd_reply "$@";;
-  block) shift; cmd_block "$@";;
-  close) shift; cmd_close "$@";;
-  hook) shift; cmd_hook "$@";;
+  ready|inbox|waiting|show|open|reply|ack|progress|block|close|settings|setup|role|hook|check)
+    c=$1; shift; "cmd_$c" "$@";;
   _action) shift; cmd_action "$@";;
   version|--version) echo "$VERSION";;
   ""|-h|--help|help) usage;;

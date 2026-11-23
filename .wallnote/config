@@ -1,0 +1,16 @@
+# wallnote team settings: committed, shared by everyone on this repo.
+# Personal settings (autonomy, when to check) live in each person's clone: run `.wallnote/wallnote settings`.
+
+# Who may post messages agents will see: collaborators (people with write/triage access) | anyone
+# Keep "collaborators" on public repos; otherwise strangers can put text in front of your agents.
+allowed_authors = collaborators
+
+# The most any agent here may do on its own when a message arrives: notify | ack | act
+max_autonomy = act
+
+# Known roles, space-separated (optional). Addressing @alice/<role> with an unlisted role is rejected.
+roles =
+
+# Things agents must never do just because a message asked, space-separated (optional).
+# Suggested vocabulary: merge deploy force-push delete-branch change-ci change-secrets spend-money
+forbid = merge deploy force-push change-secrets
