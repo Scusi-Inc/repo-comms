@@ -101,7 +101,16 @@ cmd_open() {
   local r; r=$(repo)
   if [[ $force -eq 0 ]]; then
     local dupes
-    dupes=$(gh api -X GET search/issues -f q="repo:$r is:issue is:open in:title $title" --jq '.items[:5][] | "  #\(.number)\t\(.title)\tball: \(.assignees[0].login // "-")"' 2>/dev/null || true)
+    # Compare significant title words against recent open threads (search indexing lags).
+    local qt=${title//\\/\\\\}; qt=${qt//\"/\\\"}
+    dupes=$(gh api "repos/$r/issues?state=open&sort=updated&per_page=100" --jq '
+      def words: ascii_downcase | [scan("[a-z0-9]{3,}")] | map(select(IN("the","and","for","with","this","that","does","from","test")|not)) | unique;
+      ("'"$qt"'"|words) as $w
+      | map(select(.pull_request|not))
+      | map(. as $i | ($i.title|words) as $v
+          | ([$w[] | select(IN($v[]))] | length) as $hit
+          | select(($w|length) > 0 and $hit * 2 >= ([($w|length),($v|length)]|min) and $hit > 0))
+      | .[:5][] | "  #\(.number)\t\(.title)\tball: \(.assignees[0].login // "-")"' 2>/dev/null || true)
     if [[ -n "$dupes" ]]; then
       echo "Possible duplicates — reply to one of these instead, or re-run with --force:" >&2
       echo "$dupes" >&2
