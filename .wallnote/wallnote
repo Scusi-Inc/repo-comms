@@ -3,7 +3,7 @@
 # Needs only `gh` (logged in). Works with bash 3.2+ (macOS). See .wallnote/PROTOCOL.md.
 set -euo pipefail
 
-VERSION=0.2.0
+VERSION=0.3.0
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 die() { echo "wallnote: $*" >&2; exit 1; }
@@ -20,7 +20,11 @@ repo() {
 _ME=""
 me() {
   if [[ -n "${WALLNOTE_ME:-}" ]]; then echo "$WALLNOTE_ME"; return; fi
-  [[ -n "$_ME" ]] || _ME=$(gh api user --jq .login)
+  if [[ -z "$_ME" ]]; then
+    local pf; pf="$(git rev-parse --git-common-dir 2>/dev/null)/wallnote.conf"
+    _ME=$(conf_get "$pf" login "")
+    if [[ -z "$_ME" ]]; then _ME=$(gh api user --jq .login); [[ -f "$pf" ]] && conf_set "$pf" login "$_ME"; fi
+  fi
   echo "$_ME"
 }
 
@@ -141,10 +145,22 @@ Settings
   wallnote settings              show team + personal settings
   wallnote setup --autonomy notify|ack|act --check prompt,stop|prompt|stop|session [--role R]
   wallnote role [R|--clear]      this agent's role (per working copy)
+  wallnote update                update wallnote in this repo (keeps team settings)
 EOF
 }
 
 cmd_ready() {
+  local out; out=$(ready_list)
+  if [[ -n "$out" ]]; then echo "$out"; else echo "Nothing waiting on @$(me)$( [[ -n "$(my_role)" ]] && echo "/$(my_role)")."; fi
+  setup_note
+}
+
+setup_note() {
+  is_setup || echo "(Note: wallnote isn't set up for you yet, so your agent won't be told about new messages. Run: .wallnote/wallnote setup)" >&2
+  return 0
+}
+
+ready_list() {
   local r u role; r=$(repo); u=$(me); role=$(my_role)
   gh api "repos/$r/issues?state=open&assignee=$u&per_page=100" --jq "
     (\"$role\") as \$role | map(select(.pull_request|not)) $ROLE_FILTER
@@ -157,7 +173,14 @@ cmd_ready() {
 }
 
 cmd_waiting() {
-  local r; r=$(repo)
+  local r out; r=$(repo)
+  out=$(waiting_list "$r")
+  if [[ -n "$out" ]]; then echo "$out"; else echo "No open threads."; fi
+  setup_note
+}
+
+waiting_list() {
+  local r=$1
   gh api "repos/$r/issues?state=open&per_page=100" --jq '
     map(select(.pull_request|not))
     | map(. + {who: ((.assignees[0].login // "NOBODY (fix this)") + ([.labels[].name | select(startswith("role:")) | ltrimstr("role:")] | if length>0 then "/" + .[0] else "" end))})
@@ -310,6 +333,7 @@ cmd_settings() {
 }
 
 cmd_setup() {
+  if [[ $# -eq 0 ]] && ! is_setup; then onboarding; return 0; fi
   local a="" c="" role=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -337,6 +361,10 @@ cmd_role() {
   esac
 }
 
+cmd_update() {
+  gh api "repos/${WALLNOTE_SRC:-Scusi-Inc/wallnote}/contents/install.sh" --jq .content | base64 -d | bash
+}
+
 # ---------- what agents see ----------
 
 guidance() {
@@ -359,7 +387,7 @@ This repo uses wallnote (team messages on GitHub Issues; see .wallnote/PROTOCOL.
 Before other work, briefly ask your user these, then run the setup command with their answers:
 1. Autonomy when a message arrives for them: notify (just tell me, default) | ack (acknowledge, then ask me) | act (handle it within team rules, then tell me). Team maximum: $(team max_autonomy act).
 2. When to check for new messages: prompt (each time I send a message), stop (each time you finish a task), or both (default).
-3. Does this agent have a role? Optional. Known roles: $(team roles '(none defined)').
+$(if [[ -n "$(team roles "")" ]]; then echo "3. Does this agent have a role? Optional. Team roles: $(team roles "")."; else echo "3. Roles: none are defined for this repo yet (roles = in .wallnote/config), so skip --role. If your user wants roles, add them to .wallnote/config first and commit."; fi)
 Then run: .wallnote/wallnote setup --autonomy <a> --check <prompt,stop|prompt|stop|session> [--role <r>]
 EOF
 }
@@ -367,10 +395,15 @@ EOF
 is_setup() { [[ -f "$(personal_file)" ]] && grep -q autonomy "$(personal_file)"; }
 
 # New since last check: threads waiting on me (and my role) touched by someone else.
-new_for_me() {
+new_for_me() { # [min-seconds-since-last-check]
   local r u role cf since now_ts; r=$(repo); u=$(me); role=$(my_role)
   cf="$(gitdir)/wallnote-checked"; now_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   since=$(cat "$cf" 2>/dev/null || echo "")
+  if [[ -n "${1:-}" && -n "$since" ]]; then
+    local last; last=$(cat "$cf.epoch" 2>/dev/null || echo 0)
+    [[ $(( $(date -u +%s) - last )) -lt $1 ]] && return 0   # checked recently: free
+  fi
+  date -u +%s > "$cf.epoch"
   echo "$now_ts" > "$cf"
   [[ -z "$since" ]] && return 0   # first run: session start covers the backlog
   # Notifications only cover other people's activity, so my own posts never wake me.
@@ -411,7 +444,7 @@ cmd_hook() {
   checks=$(personal check prompt,stop)
   case "$event" in
     session)
-      local ready; ready=$(cmd_ready 2>/dev/null) || exit 0
+      local ready; ready=$(ready_list 2>/dev/null) || exit 0
       new_for_me >/dev/null 2>&1 || true   # reset "new" cursor
       local rem; rem=$(remind_line)
       [[ -z "$ready" && -z "$rem" ]] && exit 0
@@ -425,7 +458,9 @@ cmd_hook() {
       [[ ",$checks," == *",$event,"* ]] || exit 0
       # Stop hook re-entry guard.
       [[ "$event" == "stop" && "$input" == *'"stop_hook_active":true'* ]] && exit 0
-      local new; new=$(new_for_me 2>/dev/null) || exit 0
+      local new min=""
+      [[ "$event" == "prompt" ]] && min=$(personal check_interval 60)
+      new=$(new_for_me "$min" 2>/dev/null) || exit 0
       [[ -z "$new" ]] && exit 0
       local msg; msg=$(printf '## wallnote: new for @%s\n%s\n%s' "$(me)" "$new" "$(guidance)")
       if [[ "$event" == "prompt" ]]; then
@@ -459,7 +494,16 @@ cmd_action() {
   state=$(jq -r .issue.state "$ev")
   [[ "$state" == "open" ]] || exit 0
   if [[ "$name" == "issue_comment" ]]; then
-    author=$(jq -r .comment.user.login "$ev"); text=$(jq -r .comment.body "$ev"); assoc=$(jq -r .comment.author_association "$ev")
+    # Use the latest non-bot comment (not necessarily this event's): runs for rapid comments can be
+    # cancelled or land out of order, and each run must leave the ball where the newest post says.
+    local latest
+    latest=$(gh api --paginate "repos/$r/issues/$n/comments?per_page=100" --jq '.[] | select(.user.login|endswith("[bot]")|not) | {u:.user.login, a:.author_association, b:.body} | @base64' | tail -1)
+    if [[ -n "$latest" ]]; then
+      author=$(printf '%s' "$latest" | base64 -d | jq -r .u); assoc=$(printf '%s' "$latest" | base64 -d | jq -r .a); text=$(printf '%s' "$latest" | base64 -d | jq -r .b)
+    else
+      author=$(jq -r .comment.user.login "$ev"); text=$(jq -r .comment.body "$ev"); assoc=$(jq -r .comment.author_association "$ev")
+    fi
+    assignees=$(gh api "repos/$r/issues/$n" --jq '[.assignees[].login] | join(" ")')
   else
     author=$(jq -r .issue.user.login "$ev"); text=$(jq -r '.issue.body // ""' "$ev"); assoc=$(jq -r .issue.author_association "$ev")
   fi
@@ -506,7 +550,7 @@ cmd_action() {
 }
 
 case "${1:-}" in
-  ready|inbox|waiting|show|open|reply|ack|progress|block|close|settings|setup|role|hook|check)
+  ready|inbox|waiting|show|open|reply|ack|progress|block|close|settings|setup|role|hook|check|update)
     c=$1; shift; "cmd_$c" "$@";;
   _action) shift; cmd_action "$@";;
   version|--version) echo "$VERSION";;

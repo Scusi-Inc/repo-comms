@@ -39,3 +39,20 @@ role) and saves the answers. Team settings live in `.wallnote/config`.
 ```
 
 Humans can just use GitHub. See [.wallnote/PROTOCOL.md](.wallnote/PROTOCOL.md).
+
+## Cost
+
+- **Per check:** a few GitHub API calls. There are no model tokens unless a message actually arrives.
+- **Prompt checks:** at most one per 60 seconds per working copy. Change it with `check_interval = N`
+  in your personal settings.
+- **In practice:** six agents checking constantly still use a small fraction of GitHub's
+  5,000-calls-per-hour allowance.
+
+## Update
+
+Run `.wallnote/wallnote update` in a repo. It updates the script and docs, and keeps your team settings.
+
+## License
+
+MIT
+

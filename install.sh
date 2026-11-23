@@ -31,8 +31,11 @@ on:
 permissions:
   issues: write
   contents: read
+# Runs queue per thread. Even if GitHub drops a pending run during rapid comments, the next run
+# re-derives the ball from the thread's newest post, so no handoff is lost.
 concurrency:
   group: wallnote-${{ github.event.issue.number }}
+  cancel-in-progress: false
 jobs:
   ball:
     if: ${{ !github.event.issue.pull_request }}
@@ -47,20 +50,28 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 YAML
 
-# AGENTS.md: replace our block if present, else append.
+# Agent instructions. Normally a block in AGENTS.md that CLAUDE.md imports. If this repo marks
+# AGENTS.md as superseded, put the block straight into CLAUDE.md instead (no import loop).
 block=$(gh api "repos/$SRC/contents/AGENTS.md?ref=$REF" --jq .content | base64 -d)
-python3 - "$block" <<'EOF_PY'
+target=AGENTS.md
+if [[ -f AGENTS.md ]] && sed '/<!-- wallnote:start -->/,/<!-- wallnote:end -->/d' AGENTS.md | grep -qiE 'supersede|deprecated|do not (use|edit)'; then
+  target=CLAUDE.md
+fi
+python3 - "$block" "$target" <<'EOF_PY'
 import os, re, sys
-p, block = 'AGENTS.md', sys.argv[1].strip()
+block, p = sys.argv[1].strip(), sys.argv[2]
 s = open(p).read() if os.path.exists(p) else ''
 pat = r'<!-- wallnote:start -->.*?<!-- wallnote:end -->'
 s = re.sub(pat, lambda m: block, s, flags=re.S) if re.search(pat, s, flags=re.S) else (s.rstrip() + '\n\n' + block if s.strip() else block)
 open(p, 'w').write(s.rstrip() + '\n')
 EOF_PY
-
-# CLAUDE.md: make Claude Code read AGENTS.md.
-if [[ ! -f CLAUDE.md ]]; then echo "@AGENTS.md" > CLAUDE.md
-elif ! grep -q '@AGENTS.md' CLAUDE.md; then printf '\n@AGENTS.md\n' >> CLAUDE.md; fi
+if [[ "$target" == AGENTS.md ]]; then
+  # Make Claude Code read AGENTS.md.
+  if [[ ! -f CLAUDE.md ]]; then echo "@AGENTS.md" > CLAUDE.md
+  elif ! grep -q '@AGENTS.md' CLAUDE.md; then printf '\n@AGENTS.md\n' >> CLAUDE.md; fi
+else
+  echo "note: AGENTS.md is marked superseded here, so the wallnote block went into CLAUDE.md."
+fi
 
 # Claude Code hooks: session start, each prompt, each finished task.
 mkdir -p .claude

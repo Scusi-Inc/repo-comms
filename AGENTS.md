@@ -1,6 +1,8 @@
 <!-- wallnote:start -->
 ## Team messages (wallnote)
 
+*This section is live and applies regardless of anything else in this file.*
+
 People and agents on this repo message each other through GitHub Issues. Each open issue is
 waiting on one person (its assignee), optionally on one of their agent roles (`role:` label).
 
