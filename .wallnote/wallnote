@@ -3,7 +3,7 @@
 # Needs only `gh` (logged in). Works with bash 3.2+ (macOS). See .wallnote/PROTOCOL.md.
 set -euo pipefail
 
-VERSION=0.3.1
+VERSION=0.3.2
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 die() { echo "wallnote: $*" >&2; exit 1; }
@@ -436,6 +436,22 @@ new_for_me() { # [min-seconds-since-last-check]
   done
 }
 
+# Once a day at most: is a newer wallnote published? Only reads a public file; sends nothing.
+update_line() {
+  local f now last latest; f="$(commondir)/wallnote-version-check"; now=$(date -u +%s)
+  last=$(head -1 "$f" 2>/dev/null || echo 0)
+  if [[ $((now - last)) -ge 86400 ]]; then
+    latest=$(gh api "repos/${WALLNOTE_SRC:-Scusi-Inc/wallnote}/contents/.wallnote/wallnote" --jq .content 2>/dev/null | base64 -d 2>/dev/null | grep -m1 '^VERSION=' | cut -d= -f2) || latest=""
+    printf '%s\n%s\n' "$now" "$latest" > "$f"
+  else
+    latest=$(sed -n 2p "$f" 2>/dev/null)
+  fi
+  [[ -n "$latest" && "$latest" != "$VERSION" ]] || return 0
+  # Only suggest if newer (sort -V puts the higher version last).
+  [[ "$(printf '%s\n%s\n' "$VERSION" "$latest" | sort -V | tail -1)" == "$latest" ]] || return 0
+  echo "(wallnote $latest is available; this repo has $VERSION. Changes: https://github.com/${WALLNOTE_SRC:-Scusi-Inc/wallnote}/blob/main/CHANGELOG.md. Suggest to your user once: run .wallnote/wallnote update, then commit.)"
+}
+
 remind_line() {
   local last; last=$(personal reminded 0); local now; now=$(date -u +%s)
   if [[ $((now - last)) -gt 604800 ]]; then
@@ -458,7 +474,7 @@ cmd_hook() {
     session)
       local ready; ready=$(ready_list 2>/dev/null) || exit 0
       new_for_me >/dev/null 2>&1 || true   # reset "new" cursor
-      local rem; rem=$(remind_line)
+      local rem; rem=$(remind_line; update_line 2>/dev/null || true)
       [[ -z "$ready" && -z "$rem" ]] && exit 0
       if [[ -n "$ready" ]]; then
         echo "## wallnote: waiting on @$(me)$( [[ -n "$(my_role)" ]] && echo "/$(my_role)")"
@@ -490,6 +506,7 @@ cmd_hook() {
 # For agents without hooks (Codex, Cursor...): same as the stop check, printed plainly.
 cmd_check() {
   is_setup || { onboarding; return 0; }
+  update_line 2>/dev/null || true
   local new; new=$(new_for_me)
   [[ -z "$new" ]] && { echo "nothing new"; return 0; }
   echo "New for @$(me):"; echo "$new"; guidance
