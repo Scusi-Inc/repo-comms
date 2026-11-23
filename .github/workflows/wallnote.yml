@@ -1,0 +1,23 @@
+name: wallnote
+on:
+    issues:
+      types: [opened]
+    issue_comment:
+      types: [created]
+permissions:
+    issues: write
+    contents: read
+concurrency:
+    group: wallnote-${{ github.event.issue.number }}
+jobs:
+    ball:
+      if: ${{ !github.event.issue.pull_request }}
+      runs-on: ubuntu-latest
+      timeout-minutes: 2
+      steps:
+        - uses: actions/checkout@v4
+          with:
+            sparse-checkout: .wallnote
+        - run: bash .wallnote/wallnote _action
+          env:
+            GH_TOKEN: ${{ github.token }}
