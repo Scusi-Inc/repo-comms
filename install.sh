@@ -5,6 +5,7 @@ set -euo pipefail
 SRC=${COMMS_SRC:-Scusi-Inc/repo-comms}
 REF=${COMMS_REF:-main}
 root=$(git rev-parse --show-toplevel) || { echo "run inside a git repo" >&2; exit 1; }
+gh api "repos/$SRC" --jq .full_name >/dev/null 2>&1 || { echo "repo-comms: no access to $SRC — ask to be added to it" >&2; exit 1; }
 cd "$root"
 
 fetch() { # src-path dest-path
@@ -14,7 +15,33 @@ fetch() { # src-path dest-path
 
 fetch .comms/comms .comms/comms && chmod +x .comms/comms
 fetch .comms/PROTOCOL.md .comms/PROTOCOL.md
-fetch .github/workflows/comms.yml .github/workflows/comms.yml
+mkdir -p .github/workflows
+cat > .github/workflows/comms.yml <<'YAML'
+name: repo-comms
+# Keeps "whose turn is it" (the single assignee) correct when people post from the GitHub UI.
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+permissions:
+  issues: write
+  contents: read
+concurrency:
+  group: comms-${{ github.event.issue.number }}
+jobs:
+  ball:
+    if: ${{ !github.event.issue.pull_request }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .comms
+      - run: bash .comms/comms _action
+        env:
+          GH_TOKEN: ${{ github.token }}
+YAML
 
 # AGENTS.md: replace our block if present, else append.
 block=$(gh api "repos/$SRC/contents/AGENTS.md?ref=$REF" --jq .content | base64 -d)
