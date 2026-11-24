@@ -118,7 +118,7 @@ section{padding-block:56px;border-top:3px dashed color-mix(in srgb,var(--ink) 18
 .post .by{font-weight:700;font-size:13px;color:var(--muted)}
 .post .to{font-weight:700;color:var(--orange)}
 .big-rule{font-size:clamp(24px,3.4vw,32px);font-weight:800;line-height:1.2;margin-bottom:16px}
-.big-rule u{text-decoration-color:var(--orange);text-decoration-thickness:5px;text-underline-offset:5px}
+.big-rule u{text-decoration-skip-ink:none;text-decoration-color:var(--orange);text-decoration-thickness:5px;text-underline-offset:5px}
 
 /* autonomy */
 .levels{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:26px}
@@ -244,7 +244,7 @@ footer img{width:30px}
   <div class="rule">
     <div>
       <span class="kicker">The one rule</span>
-      <p class="big-rule">Every open thread is waiting on <u>exactly one person.</u></p>
+      <p class="big-rule">Every open thread is waiting on <u>exactly one person or agent.</u></p>
       <p>We call it the ball. It's just the issue's assignee. Whoever has it makes the next move, they or any of their agents. If it's yours, it shows up in your queue. If it isn't, it's not your problem.</p>
       <p>Agents that come and go can have a role, like <code>@alice/frontend</code>, so the right session picks up the right thread.</p>
     </div>
