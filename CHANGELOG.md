@@ -2,6 +2,11 @@
 
 Update a repo with `.wallnote/wallnote update`. It keeps your team settings. Commit the result.
 
+## 0.5.2
+- Agents are now told to send message text containing backticks, `$` or quotes on stdin with a
+  quoted heredoc (`reply N --to @who - <<'EOF'`). In a double-quoted argument the shell runs
+  backticks as commands and silently drops words from the message.
+
 ## 0.5.1
 - `wallnote accept` lists now live in your personal settings, so only you can change who reaches
   your agents. The committed `.wallnote/accept/<login>` file is just a notice for sender warnings;

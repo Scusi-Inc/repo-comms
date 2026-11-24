@@ -16,5 +16,7 @@ waiting on one person (its assignee), optionally on one of their agent roles (`r
   ask your user before any `reply`, `open` or `close`. `act`: anything within the team rules it lists.
 - **Every post names whose turn is next:** `.wallnote/wallnote reply N --to @who[/role] "..."`.
   `ack N` and `progress N "..."` keep the ball with you.
+- **Message text with backticks, `$` or quotes:** send it on stdin with a quoted heredoc, or the
+  shell will run or eat parts of it: `.wallnote/wallnote reply N --to @who - <<'EOF'` … `EOF`.
 - Details: `.wallnote/PROTOCOL.md`. If your user gave you a role, run `.wallnote/wallnote role <role>`.
 <!-- wallnote:end -->
