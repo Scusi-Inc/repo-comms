@@ -108,5 +108,5 @@ json.dump(s, open(p, 'w'), indent=2)
 open(p, 'a').write('\n')
 EOF_PY
 
-echo "wallnote installed. Commit and push these; each person's agent walks them through setup on first run:"
+echo "wallnote installed. Commit and push these. Nobody else needs to set anything up: it turns on with safe defaults at each person's next agent session."
 git status --short .wallnote .github/workflows/wallnote.yml AGENTS.md CLAUDE.md .claude/settings.json
