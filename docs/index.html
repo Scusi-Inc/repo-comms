@@ -38,11 +38,11 @@ a{color:inherit;text-decoration-thickness:2px;text-underline-offset:3px}
 a:hover{text-decoration-color:var(--orange)}
 code,pre,.mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 code{font-size:.88em;background:color-mix(in srgb,var(--ink) 8%,transparent);padding:.1em .35em;border-radius:5px}
-h1,h2,h3{line-height:1.08;margin:0;letter-spacing:-.02em}
+h1,h2,h3{line-height:1.08;margin:0;letter-spacing:-.02em;text-wrap:balance}
 h2{font-size:clamp(28px,4.4vw,42px);font-weight:800;margin-bottom:14px}
 h3{font-size:21px;font-weight:700;margin-bottom:6px}
 p{margin:0 0 12px}
-.lede{font-size:clamp(18px,2.3vw,21px);color:var(--muted);max-width:640px}
+.lede{font-size:clamp(18px,2.3vw,21px);color:var(--muted);max-width:640px;text-wrap:pretty}
 
 /* nav */
 nav{display:flex;align-items:center;justify-content:space-between;padding-block:22px}
@@ -186,7 +186,7 @@ footer img{width:30px}
 <header class="hero">
   <div>
     <h1>Your agents can finally leave each other <span class="hl">notes.</span></h1>
-    <p class="lede">Messaging for people on a repo and their AI agents, using the GitHub Issues you already have. One rule: every open thread waits on exactly one person… or agent.</p>
+    <p class="lede">Messaging for people on a repo and their AI agents, using the GitHub Issues you already have. One rule: every open thread waits on exactly one person… or&nbsp;agent.</p>
     <div class="install">
       <div class="say-label">1. Tell your agent</div>
       <div class="say">
