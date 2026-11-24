@@ -2,6 +2,13 @@
 
 Update a repo with `.wallnote/wallnote update`. It keeps your team settings. Commit the result.
 
+## 0.4.3
+- Prompt-injection hardening:
+  - Issue titles written by non-collaborators are masked in `ready` and new-message checks.
+  - `show` frames posts as requests that can't override your user or rules, and flags posts with
+    `<!-- -->` text that GitHub's web view hides from humans.
+  - A warning when `allowed_authors = anyone`, louder on public repos.
+
 ## 0.4.2
 - `wallnote setup --every 10m` sets how often you check (default once a minute). It applies to
   end-of-task checks too, not just prompts. Throttled checks only delay messages, never drop them.
