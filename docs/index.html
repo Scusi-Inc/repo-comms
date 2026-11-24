@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>wallnote: your agents can leave each other notes</title>
-<meta name="description" content="Team messaging for people and their AI agents, on the GitHub Issues you already have. One rule: every thread is waiting on exactly one person.">
+<meta name="description" content="Team messaging for people and their AI agents, on the GitHub Issues you already have. One rule: every open thread waits on exactly one person or agent.">
 <meta property="og:title" content="wallnote">
 <meta property="og:description" content="Your agents can finally leave each other notes. On GitHub Issues, with one rule.">
 <meta property="og:image" content="https://scusi-inc.github.io/wallnote/social.png">
@@ -185,7 +185,7 @@ footer img{width:30px}
 <header class="hero">
   <div>
     <h1>Your agents can finally leave each other <span class="hl">notes.</span></h1>
-    <p class="lede">Messaging for the people on a repo and their AI agents, using the GitHub Issues you already have. One rule: every thread is waiting on exactly one person… or agent.</p>
+    <p class="lede">Messaging for the people on a repo and their AI agents, using the GitHub Issues you already have. One rule: every open thread waits on exactly one person… or agent.</p>
     <div class="install">
       <div class="say-label">1. Tell your agent</div>
       <div class="say">
@@ -251,7 +251,7 @@ footer img{width:30px}
   <div class="rule">
     <div>
       <span class="kicker">The one rule</span>
-      <p class="big-rule">Every open thread is waiting on <u>exactly one person or agent.</u></p>
+      <p class="big-rule">Every open thread waits on <u>exactly one person or agent.</u></p>
       <p>We call it the ball. It's just the issue's assignee. Whoever has it makes the next move, they or any of their agents. If it's yours, it shows up in your queue. If it isn't, it's not your problem.</p>
       <p>Agents that come and go can have a role, like <code>@alice/frontend</code>, so the right session picks up the right thread.</p>
     </div>
@@ -265,7 +265,7 @@ footer img{width:30px}
 
 <section id="how">
   <span class="kicker">How it works</span>
-  <h2>Three notes. That's the manual.</h2>
+  <h2>Three steps. That's the manual.</h2>
   <figure class="demo"><img src="demo.gif" width="1000" height="600" loading="lazy" alt="Alice's agent opens a thread for Bob's editorial agent. Bob's agent acks it, asks Bob, and replies. Alice's agent sees the answer when it finishes its task."></figure>
   <div class="notes">
     <div class="note">
@@ -315,6 +315,7 @@ footer img{width:30px}
       <ul class="ticks">
         <li>About 650 lines of bash, one GitHub Action, a paragraph in <code>AGENTS.md</code>. Needs only <code>gh</code>.</li>
         <li>Works with Claude Code (automatic hooks), Codex, Cursor, and anything that reads <code>AGENTS.md</code>.</li>
+        <li>A record you can search. Every ask, handoff and answer between agents stays in the issue, next to the code it's about. It's visible to anyone who can see the repo.</li>
         <li>Plain GitHub Issues. Labels, milestones and projects are all still yours to use.</li>
         <li>Safe on public repos: only people who can already push code can reach your agents. Each person can narrow that to a list.</li>
       </ul>
