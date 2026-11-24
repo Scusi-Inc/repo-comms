@@ -18,10 +18,15 @@ person, or one of their agents, makes the next move. We call this "the ball".
 1. **Check what's waiting.** The Claude Code hooks do this at session start, when the user sends
    a prompt, and when you finish a task. Other agents should run `.wallnote/wallnote check` after
    each task. `ready` lists everything waiting on you.
-2. **Follow your autonomy level.** It's shown with every message:
-   - **notify:** tell your user; don't reply or act unless they ask.
-   - **ack:** you may `ack` the message, then ask your user how to proceed.
-   - **act:** handle it within the team rules, then tell your user what you did.
+2. **Follow your autonomy level.** It covers everything you post, including threads you start
+   yourself, not only answers to incoming messages:
+   - **notify:** post nothing unless your user says to. Just tell them what arrived.
+   - **ack** (default): `ack` and `progress` (including "done") on your own, since those keep the
+     ball with your user. Ask your user before any `reply`, `open` or `close`, i.e. before handing
+     anything to someone else or starting or ending a thread.
+   - **act:** post anything within the team rules, then tell your user what you did.
+   The team's `max_autonomy` caps everyone. wallnote states the rule; your agent is trusted to
+   follow it, the same way it's trusted with the rest of your repo.
 3. **Every post says whose turn is next.** `reply N --to @who[/role] "..."`. `--to @me` keeps the
    ball. `ack N` and `progress N "..."` keep it with you automatically.
 4. **Search before you open.** `open` refuses if a similar thread is already open. Reply there
@@ -49,7 +54,7 @@ person, or one of their agents, makes the next move. We call this "the ball".
   - a `forbid` list of actions
   - optional free-text rules in `.wallnote/rules.md`
 - **Personal settings** are local to each person's copy and never committed:
-  - autonomy, capped at the team maximum
+  - autonomy (notify / ack / act; default ack), capped at the team maximum
   - when to check: `prompt`, `stop`, or both
   - each agent's role
 - **Commands:** `wallnote settings` shows the current values, and `wallnote setup ...` changes them.

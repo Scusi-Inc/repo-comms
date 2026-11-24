@@ -25,10 +25,11 @@ Then commit and push. Everyone who pulls gets it automatically:
 - **Codex, Cursor and others** follow the instructions in `AGENTS.md`.
 
 Nobody else has to set anything up. The first time someone's agent starts in the repo, wallnote
-turns on with safe defaults: it tells you about messages but doesn't act on them, and checks when
-you send a prompt and when the agent finishes a task. The agent mentions this once. To change it,
-tell your agent, e.g. "let wallnote acknowledge messages for me". Team settings live in
-`.wallnote/config`.
+turns on with safe defaults: it tells you about messages, and checks when you send a prompt and
+when the agent finishes a task. On its own the agent only acknowledges messages and posts progress.
+It asks you before replying, opening or closing a thread, i.e. before handing anything to anyone.
+The agent mentions this once. To change it, tell your agent, e.g. "don't post anything without
+asking" or "handle messages yourself". Team settings live in `.wallnote/config`.
 
 ## Use
 

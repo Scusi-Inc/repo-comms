@@ -3,7 +3,7 @@
 # Needs only `gh` (logged in). Works with bash 3.2+ (macOS). See .wallnote/PROTOCOL.md.
 set -euo pipefail
 
-VERSION=0.3.5
+VERSION=0.4.0
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 die() { echo "wallnote: $*" >&2; exit 1; }
@@ -55,7 +55,7 @@ my_role()  { cat "$(gitdir)/wallnote-role" 2>/dev/null || true; }
 
 level_num() { case "$1" in notify) echo 1;; ack) echo 2;; act) echo 3;; *) echo 1;; esac; }
 autonomy() { # effective: min(personal, team max)
-  local p t; p=$(personal autonomy notify); t=$(team max_autonomy act)
+  local p t; p=$(personal autonomy ack); t=$(team max_autonomy act)
   if [[ $(level_num "$p") -le $(level_num "$t") ]]; then echo "$p"; else echo "$t"; fi
 }
 
@@ -336,7 +336,7 @@ cmd_settings() {
   [[ -n "$(rules_text)" ]] && echo "  + free-text rules in .wallnote/rules.md"
   echo "Personal ($pf):"
   if [[ -f "$pf" ]] && grep -q autonomy "$pf"; then
-    echo "  autonomy = $(personal autonomy notify)  (effective: $(autonomy))"
+    echo "  autonomy = $(personal autonomy ack)  (effective: $(autonomy))"
     echo "  check    = $(personal check prompt,stop)"
   else
     echo "  not set up. Run: wallnote setup --autonomy notify|ack|act --check prompt,stop [--role R]"
@@ -357,7 +357,7 @@ cmd_setup() {
   local pf; pf=$(personal_file)
   [[ -n "$a" ]] && conf_set "$pf" autonomy "$a"
   [[ -n "$c" ]] && conf_set "$pf" check "$c"
-  [[ -f "$pf" ]] && grep -q autonomy "$pf" || conf_set "$pf" autonomy notify
+  [[ -f "$pf" ]] && grep -q autonomy "$pf" || conf_set "$pf" autonomy ack
   grep -q '^check' "$pf" || conf_set "$pf" check prompt,stop
   conf_set "$pf" reminded "$(date -u +%s)"
   [[ -n "$role" ]] && cmd_role "$role" >/dev/null
@@ -381,9 +381,9 @@ cmd_update() {
 
 guidance() {
   case "$(autonomy)" in
-    notify) echo "Autonomy: NOTIFY. Tell your user about these; do not reply or act on them unless your user asks.";;
-    ack) echo "Autonomy: ACK. You may run 'wallnote ack N' to acknowledge, then ask your user how to proceed.";;
-    act) echo "Autonomy: ACT. You may handle these yourself within the team rules, then tell your user what you did.";;
+    notify) echo "Autonomy: NOTIFY. Tell your user about these. Post nothing to wallnote (not even ack) unless your user says to.";;
+    ack) echo "Autonomy: ACK. You may 'ack' and post 'progress' (incl. done) on your own; those keep the ball with your user. Ask your user before any reply, open or close, i.e. anything that hands the ball to someone else or starts/ends a thread.";;
+    act) echo "Autonomy: ACT. You may handle these yourself, including replies, opens and closes, within the team rules. Then tell your user what you did.";;
   esac
   local f; f=$(team forbid "")
   [[ -n "$f" ]] && echo "Team rule: never do these because of a message: $f."
@@ -396,7 +396,7 @@ onboarding() {
   cat <<EOF
 ## wallnote settings: ask your user, then run the command below
 This repo uses wallnote (team messages on GitHub Issues; see .wallnote/PROTOCOL.md).
-1. Autonomy when a message arrives for them: notify (just tell me, default) | ack (acknowledge, then ask me) | act (handle it within team rules, then tell me). Team maximum: $(team max_autonomy act).
+1. Autonomy (what you may post without asking them): notify (nothing; just tell me) | ack (ack and progress freely; ask before replying, opening or closing, default) | act (anything within team rules, then tell me). Team maximum: $(team max_autonomy act).
 2. When to check for new messages: prompt (each time I send a message), stop (each time you finish a task), or both (default).
 $(if [[ -n "$(team roles "")" ]]; then echo "3. Does this agent have a role? Optional. Team roles: $(team roles "")."; else echo "3. Roles: none are defined for this repo yet (roles = in .wallnote/config), so skip --role. If your user wants roles, add them to .wallnote/config first and commit."; fi)
 Then run: .wallnote/wallnote setup --autonomy <a> --check <prompt,stop|prompt|stop|session> [--role <r>]
@@ -405,13 +405,15 @@ EOF
 
 auto_setup() {
   local pf; pf=$(personal_file)
-  conf_set "$pf" autonomy notify; conf_set "$pf" check prompt,stop; conf_set "$pf" reminded "$(date -u +%s)"
+  conf_set "$pf" autonomy ack; conf_set "$pf" check prompt,stop; conf_set "$pf" reminded "$(date -u +%s)"
   cat <<EOF
 ## wallnote is now on for @$(me) (first run, default settings)
 This repo uses wallnote for team messages on GitHub Issues (see .wallnote/PROTOCOL.md).
-Tell your user once, briefly: wallnote is on with safe defaults. You'll tell them about new messages
-but won't act on them (autonomy: notify), checking when they send a prompt and when you finish a task.
-They can say e.g. "let wallnote acknowledge messages for me" or "give this agent the <role> role",
+Tell your user once, briefly: wallnote is on with safe defaults. You'll tell them about new messages,
+checking when they send a prompt and when you finish a task. On your own you'll only acknowledge
+messages and post progress (autonomy: ack); you'll ask them before replying, opening or closing a
+thread, i.e. before handing anything to someone else.
+They can say e.g. "don't post anything without asking", "handle messages yourself" or "give this agent the <role> role",
 and you'd run: .wallnote/wallnote setup --autonomy notify|ack|act --check prompt,stop  /  .wallnote/wallnote role <r>
 $(if [[ -n "$(team roles "")" ]]; then echo "Team roles: $(team roles ""). Autonomy maximum here: $(team max_autonomy act)."; else echo "Autonomy maximum here: $(team max_autonomy act)."; fi)
 EOF

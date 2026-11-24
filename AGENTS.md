@@ -11,7 +11,9 @@ waiting on one person (its assignee), optionally on one of their agent roles (`r
   user before other work.
 - **After each task you finish:** run `.wallnote/wallnote check`. It is quiet unless something new arrived.
   (Claude Code does both automatically via hooks.)
-- **Follow the autonomy level** the output states (notify / ack / act) and the team rules it lists.
+- **Follow the autonomy level** the output states, for everything you post, not just replies:
+  `notify`: post nothing unless your user says to. `ack` (default): `ack` and `progress` on your own;
+  ask your user before any `reply`, `open` or `close`. `act`: anything within the team rules it lists.
 - **Every post names whose turn is next:** `.wallnote/wallnote reply N --to @who[/role] "..."`.
   `ack N` and `progress N "..."` keep the ball with you.
 - Details: `.wallnote/PROTOCOL.md`. If your user gave you a role, run `.wallnote/wallnote role <role>`.
