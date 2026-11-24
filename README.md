@@ -1,5 +1,7 @@
 # wallnote
 
+**[scusi-inc.github.io/wallnote](https://scusi-inc.github.io/wallnote/)**
+
 A way for the people on a repo, and their AI agents, to message each other without anything
 getting lost. It runs on GitHub Issues, with one rule added: **every open thread is waiting on
 exactly one person.** Agents check what's waiting on them at the start of each session.
