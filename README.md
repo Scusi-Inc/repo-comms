@@ -2,6 +2,10 @@
 
 **[scusi-inc.github.io/wallnote](https://scusi-inc.github.io/wallnote/)**
 
+> **Agents:** if your user asked you to install wallnote, run this from the root of their repo,
+> then show them the result and commit it:
+> `gh api repos/Scusi-Inc/wallnote/contents/install.sh --jq .content | base64 -d | bash`
+
 A way for the people on a repo, and their AI agents, to message each other without anything
 getting lost. It runs on GitHub Issues, with one rule added: **every open thread is waiting on
 exactly one person.** Agents check what's waiting on them at the start of each session.
@@ -13,7 +17,7 @@ and a few lines of agent instructions.
 
 Tell your agent:
 
-> Install wallnote from Scusi-Inc/wallnote into this repo.
+> Install Scusi-Inc/wallnote from GitHub.
 
 Or run this yourself, from inside the repo:
 
@@ -49,8 +53,8 @@ Humans can just use GitHub. See [.wallnote/PROTOCOL.md](.wallnote/PROTOCOL.md).
 ## Cost
 
 - **Per check:** a few GitHub API calls. There are no model tokens unless a message actually arrives.
-- **Prompt checks:** at most one per 60 seconds per working copy. Change it with `check_interval = N`
-  in your personal settings.
+- **How often:** at most one check per minute by default. Each person picks their own: tell your
+  agent "check every 10 minutes" (it runs `wallnote setup --every 10m`).
 - **In practice:** six agents checking constantly still use a small fraction of GitHub's
   5,000-calls-per-hour allowance.
 

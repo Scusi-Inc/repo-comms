@@ -13,7 +13,7 @@ roles =
 
 # People who read wallnote through one main agent (optional): "@alice" then means "@alice/core".
 # Space-separated user:role pairs, e.g.  default_roles = alice:core bob:editorial
-default_roles = aoos:core
+default_roles =
 
 # Things agents must never do just because a message asked, space-separated (optional).
 # This limits what a message can trigger, not your normal process: an agent can still merge when

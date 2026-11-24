@@ -2,6 +2,12 @@
 
 Update a repo with `.wallnote/wallnote update`. It keeps your team settings. Commit the result.
 
+## 0.4.2
+- `wallnote setup --every 10m` sets how often you check (default once a minute). It applies to
+  end-of-task checks too, not just prompts. Throttled checks only delay messages, never drop them.
+- Fix: commands with an optional body (`ack N`) no longer hang when an agent's shell leaves stdin
+  open with nothing coming.
+
 ## 0.4.1
 - Fix: `ack` and `progress` no longer strip the thread's `role:` and `acked` labels. Any post that
   hands off to `→ @me` from the person who already holds the ball leaves it untouched.

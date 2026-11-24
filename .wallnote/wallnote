@@ -3,7 +3,7 @@
 # Needs only `gh` (logged in). Works with bash 3.2+ (macOS). See .wallnote/PROTOCOL.md.
 set -euo pipefail
 
-VERSION=0.4.1
+VERSION=0.4.2
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 die() { echo "wallnote: $*" >&2; exit 1; }
@@ -157,7 +157,7 @@ Writing (every post says whose turn is next; any body can come from --body-file 
 
 Settings
   wallnote settings              show team + personal settings
-  wallnote setup --autonomy notify|ack|act --check prompt,stop|prompt|stop|session [--role R]
+  wallnote setup --autonomy notify|ack|act --check prompt,stop|prompt|stop|session [--every 5m] [--role R]
   wallnote role [R|--clear]      this agent's role (per working copy)
   wallnote update                update wallnote in this repo (keeps team settings)
 EOF
@@ -349,7 +349,7 @@ cmd_settings() {
   echo "Personal ($pf):"
   if [[ -f "$pf" ]] && grep -q autonomy "$pf"; then
     echo "  autonomy = $(personal autonomy ack)  (effective: $(autonomy))"
-    echo "  check    = $(personal check prompt,stop)"
+    echo "  check    = $(personal check prompt,stop), at most every $(personal check_interval 60)s  (setup --every 5m)"
   else
     echo "  not set up. Run: wallnote setup --autonomy notify|ack|act --check prompt,stop [--role R]"
   fi
@@ -358,10 +358,11 @@ cmd_settings() {
 
 cmd_setup() {
   if [[ $# -eq 0 ]]; then onboarding; return 0; fi
-  local a="" c="" role=""
+  local a="" c="" role="" e=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --autonomy) a=$2; shift 2;; --check) c=$2; shift 2;; --role) role=$2; shift 2;;
+      --every) e=$2; shift 2;;
       *) die "unknown option $1";;
     esac
   done
@@ -369,6 +370,12 @@ cmd_setup() {
   local pf; pf=$(personal_file)
   [[ -n "$a" ]] && conf_set "$pf" autonomy "$a"
   [[ -n "$c" ]] && conf_set "$pf" check "$c"
+  if [[ -n "$e" ]]; then # 30s, 5m, 1h, or plain seconds
+    local secs
+    case "$e" in *[0-9]s) secs=${e%s};; *[0-9]m) secs=$(( ${e%m} * 60 ));; *[0-9]h) secs=$(( ${e%h} * 3600 ));; *) secs=$e;; esac
+    [[ "$secs" =~ ^[0-9]+$ ]] || die "--every takes e.g. 30s, 5m or 1h"
+    conf_set "$pf" check_interval "$secs"
+  fi
   [[ -f "$pf" ]] && grep -q autonomy "$pf" || conf_set "$pf" autonomy ack
   grep -q '^check' "$pf" || conf_set "$pf" check prompt,stop
   conf_set "$pf" reminded "$(date -u +%s)"
@@ -425,8 +432,9 @@ Tell your user once, briefly: wallnote is on with safe defaults. You'll tell the
 checking when they send a prompt and when you finish a task. On your own you'll only acknowledge
 messages and post progress (autonomy: ack); you'll ask them before replying, opening or closing a
 thread, i.e. before handing anything to someone else.
-They can say e.g. "don't post anything without asking", "handle messages yourself" or "give this agent the <role> role",
-and you'd run: .wallnote/wallnote setup --autonomy notify|ack|act --check prompt,stop  /  .wallnote/wallnote role <r>
+They can say e.g. "don't post anything without asking", "handle messages yourself", "check every 10 minutes"
+or "give this agent the <role> role", and you'd run:
+.wallnote/wallnote setup --autonomy notify|ack|act --check prompt,stop --every 10m  /  .wallnote/wallnote role <r>
 $(if [[ -n "$(team roles "")" ]]; then echo "Team roles: $(team roles ""). Autonomy maximum here: $(team max_autonomy act)."; else echo "Autonomy maximum here: $(team max_autonomy act)."; fi)
 EOF
 }
@@ -515,7 +523,7 @@ cmd_hook() {
       # Stop hook re-entry guard.
       [[ "$event" == "stop" && "$input" == *'"stop_hook_active":true'* ]] && exit 0
       local new min=""
-      [[ "$event" == "prompt" ]] && min=$(personal check_interval 60)
+      min=$(personal check_interval 60)   # at most one check per interval (setup --every)
       new=$(new_for_me "$min" 2>/dev/null) || exit 0
       [[ -z "$new" ]] && exit 0
       local msg; msg=$(printf '## wallnote: new for @%s\n%s\n%s' "$(me)" "$new" "$(guidance)")
