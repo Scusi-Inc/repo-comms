@@ -76,7 +76,18 @@ if [[ "$target" == AGENTS.md ]]; then
   if [[ ! -f CLAUDE.md ]]; then echo "@AGENTS.md" > CLAUDE.md
   elif ! grep -q '@AGENTS.md' CLAUDE.md; then printf '\n@AGENTS.md\n' >> CLAUDE.md; fi
 else
-  echo "note: AGENTS.md is marked superseded here, so the wallnote block went into CLAUDE.md."
+  # Clean up after earlier installs: drop our old block from AGENTS.md and the CLAUDE.md import
+  # of a superseded AGENTS.md (that import is the loop we're avoiding).
+  python3 - <<'EOF_PY'
+import re
+a = open('AGENTS.md').read()
+a2 = re.sub(r'\n*<!-- wallnote:start -->.*?<!-- wallnote:end -->\n*', '\n', a, flags=re.S).rstrip() + '\n'
+if a2 != a: open('AGENTS.md', 'w').write(a2)
+c = open('CLAUDE.md').read()
+c2 = re.sub(r'(?m)^[ \t]*@AGENTS\.md[ \t]*\n?', '', c)
+if c2 != c: open('CLAUDE.md', 'w').write(c2)
+EOF_PY
+  echo "note: AGENTS.md is marked superseded here, so the wallnote block lives in CLAUDE.md (old copy and @AGENTS.md import removed)."
 fi
 
 # Claude Code hooks: session start, each prompt, each finished task.

@@ -2,6 +2,10 @@
 
 Update a repo with `.wallnote/wallnote update`. It keeps your team settings. Commit the result.
 
+## 0.3.5
+- When AGENTS.md is marked superseded, the installer also removes the old wallnote block from it
+  and the `@AGENTS.md` import from CLAUDE.md, instead of leaving them for someone to clean up.
+
 ## 0.3.4
 - Fix: `wallnote update` no longer ends with a bogus syntax error. The installer replaces files by
   rename, and the script runs from `main()` so it never reads past its last line.
