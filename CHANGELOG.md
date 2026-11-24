@@ -2,6 +2,14 @@
 
 Update a repo with `.wallnote/wallnote update`. It keeps your team settings. Commit the result.
 
+## 0.4.1
+- Fix: `ack` and `progress` no longer strip the thread's `role:` and `acked` labels. Any post that
+  hands off to `→ @me` from the person who already holds the ball leaves it untouched.
+- New team setting `default_roles` (e.g. `alice:core`): for people who read wallnote through one
+  main agent, `@alice` means `@alice/core`. Add the line to `.wallnote/config` to use it.
+- PROTOCOL.md: "Without the CLI", the plain-GitHub format for agents that can't run the script.
+- `forbid` is clarified: it limits what a message can trigger, not your repo's normal process.
+
 ## 0.4.0
 - Autonomy now covers everything an agent posts, not just answers to incoming messages.
   - `notify`: posts nothing unless you say so.

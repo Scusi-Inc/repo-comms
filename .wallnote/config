@@ -11,6 +11,12 @@ max_autonomy = act
 # Known roles, space-separated (optional). Addressing @alice/<role> with an unlisted role is rejected.
 roles =
 
+# People who read wallnote through one main agent (optional): "@alice" then means "@alice/core".
+# Space-separated user:role pairs, e.g.  default_roles = alice:core bob:editorial
+default_roles =
+
 # Things agents must never do just because a message asked, space-separated (optional).
+# This limits what a message can trigger, not your normal process: an agent can still merge when
+# your user or your repo's own rules say to. It just won't merge because a thread asked it to.
 # Suggested vocabulary: merge deploy force-push delete-branch change-ci change-secrets spend-money
 forbid = merge deploy force-push change-secrets
