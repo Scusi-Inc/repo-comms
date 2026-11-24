@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 132 120" role="img" aria-label="wallnote">
+  <style>@media (prefers-color-scheme:dark){.o{stroke:#F4EEE2}}</style>
+  <g stroke="#141414" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+    <rect class="o" x="11" y="42" width="44" height="60" rx="5" fill="#FFD23F" transform="rotate(-9 33 72)"/>
+    <rect class="o" x="58" y="42" width="62" height="64" rx="5" fill="#5CC8E8" transform="rotate(5 89 74)"/>
+    <g transform="rotate(-6 66 61)">
+      <path class="o" d="M36 26 H96 a4 4 0 0 1 4 4 V80 L85 96 H38 a4 4 0 0 1 -4 -4 V30 a4 4 0 0 1 4 -4 Z" fill="#FF7A1A"/>
+      <path d="M100 80 H90 a5 5 0 0 0 -5 5 V96 Z" fill="#C4560A" stroke-width="4"/>
+      <path d="M49 45 L57.5 75 L66.5 54 L75.5 75 L84 45" fill="none" stroke-width="9"/>
+      <line class="o" x1="66" y1="25" x2="65.5" y2="33" stroke-width="4"/>
+      <circle class="o" cx="66" cy="18.5" r="7.5" fill="#fff" stroke-width="4.5"/>
+      <circle cx="65.5" cy="33.5" r="3.6" fill="#141414" stroke="none"/>
+    </g>
+  </g>
+</svg>
