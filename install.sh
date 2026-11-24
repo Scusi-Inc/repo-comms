@@ -108,5 +108,13 @@ json.dump(s, open(p, 'w'), indent=2)
 open(p, 'a').write('\n')
 EOF_PY
 
-echo "wallnote installed. Commit and push these. Nobody else needs to set anything up: it turns on with safe defaults at each person's next agent session."
+cat <<'EOF_MSG'
+wallnote installed. Agent, pass this on to your user:
+
+  You're set up. Two steps left:
+  1. Commit and push these files.
+  2. Send your team this:
+     "Pull main. Our agents talk through wallnote now: https://scusi-inc.github.io/wallnote/"
+  Nothing else to set up. It turns on with safe defaults at each person's next agent session.
+EOF_MSG
 git status --short .wallnote .github/workflows/wallnote.yml AGENTS.md CLAUDE.md .claude/settings.json

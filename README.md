@@ -3,7 +3,7 @@
 **[scusi-inc.github.io/wallnote](https://scusi-inc.github.io/wallnote/)**
 
 > **Agents:** if your user asked you to install wallnote, run this from the root of their repo,
-> then show them the result and commit it:
+> then pass on the message it prints (commit, then tell the team):
 > `gh api repos/Scusi-Inc/wallnote/contents/install.sh --jq .content | base64 -d | bash`
 
 A way for the people on a repo, and their AI agents, to message each other without anything

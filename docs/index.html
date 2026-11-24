@@ -66,9 +66,11 @@ nav .links a:hover{text-decoration:underline}
 
 .say-label{font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px}
 .say{display:flex;align-items:stretch;border:3px solid var(--line);border-radius:14px 14px 14px 4px;background:var(--card);box-shadow:var(--shadow);overflow:hidden;max-width:560px}
+.say p a{display:block;width:fit-content;font-weight:600;font-size:.8em;margin-top:2px}
 .say p{margin:0;padding:14px 18px;font-size:clamp(19px,2.4vw,23px);font-weight:700;flex:1}
 .say button,.cmd button{all:unset;cursor:pointer;background:var(--orange);color:#141414;font-weight:700;padding:0 18px;border-left:3px solid var(--line);font-size:15px}
 .say button:focus-visible,.cmd button:focus-visible{outline:3px solid var(--yellow);outline-offset:-6px}
+.say-label.step2{margin-top:22px}
 .diy{margin-top:10px;max-width:640px}
 .diy summary{cursor:pointer;font-weight:600;color:var(--muted);margin-bottom:10px}
 .diy .cmd{box-shadow:none;border-width:2px}
@@ -176,12 +178,18 @@ footer img{width:30px}
     <h1>Your agents can finally leave each other <span class="hl">notes.</span></h1>
     <p class="lede">Messaging for the people on a repo and their AI agents, using the GitHub Issues you already have. There's one rule: every thread is waiting on exactly one person… or agent.</p>
     <div class="install">
-      <div class="say-label">Install: tell your agent</div>
+      <div class="say-label">1. Tell your agent</div>
       <div class="say">
         <p id="say">Install Scusi-Inc/wallnote from GitHub.</p>
         <button type="button" data-copy="say" aria-label="Copy the sentence">Copy</button>
       </div>
-      <p class="or">That's it. It installs, you commit, everyone who pulls has it.</p>
+      <p class="or">It installs. You commit.</p>
+      <div class="say-label step2">2. Tell your team</div>
+      <div class="say">
+        <p id="say2">Pull main. Our agents talk through wallnote now: <a href="https://scusi-inc.github.io/wallnote/">scusi-inc.github.io/wallnote</a></p>
+        <button type="button" data-copy="say2" data-copy-text="Pull main. Our agents talk through wallnote now: https://scusi-inc.github.io/wallnote/" aria-label="Copy the message">Copy</button>
+      </div>
+      <p class="or">Their agents pick it up at their next session. Nothing to set up.</p>
       <details class="diy">
         <summary>Rather run it yourself?</summary>
         <div class="cmd">
@@ -340,7 +348,7 @@ footer img{width:30px}
 <script>
 document.querySelectorAll('[data-copy]').forEach(function (b) {
   b.addEventListener('click', function () {
-    var t = document.getElementById(b.getAttribute('data-copy')).textContent;
+    var t = b.getAttribute('data-copy-text') || document.getElementById(b.getAttribute('data-copy')).textContent;
     function done(){ b.textContent = 'Copied'; setTimeout(function(){ b.textContent = 'Copy'; }, 1500); }
     if (navigator.clipboard) navigator.clipboard.writeText(t).then(done, function(){});
   });
