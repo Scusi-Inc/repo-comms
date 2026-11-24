@@ -2,6 +2,14 @@
 
 Update a repo with `.wallnote/wallnote update`. It keeps your team settings. Commit the result.
 
+## 0.5.0
+- `allowed_authors = auto` is the new default: all collaborators on a private repo, only people who
+  can push code on a public one (so community triagers can't steer your agent). Also: `writers`,
+  or a list of logins. Repos that already set `collaborators` keep it.
+- `wallnote accept alice bob`: each person can narrow who reaches their own agents. It's a
+  committed file, `.wallnote/accept/<login>`, so senders get warned when they aren't on it.
+- `open` and `reply` warn when the recipient's agents won't see your message.
+
 ## 0.4.3
 - Prompt-injection hardening:
   - Issue titles written by non-collaborators are masked in `ready` and new-message checks.

@@ -1,9 +1,14 @@
 # wallnote team settings: committed, shared by everyone on this repo.
 # Personal settings (autonomy, when to check) live in each person's clone: run `.wallnote/wallnote settings`.
 
-# Who may post messages agents will see: collaborators (people with write/triage access) | anyone
-# Keep "collaborators" on public repos; otherwise strangers can put text in front of your agents.
-allowed_authors = collaborators
+# Whose posts agents see:
+#   auto (default): collaborators on a private repo; on a public repo, only people who can push code
+#   collaborators: triage access or more  |  writers: push access or more  |  anyone
+#   or a list of logins: alice bob
+# Each person can narrow this for their own agents with `wallnote accept alice bob`.
+# Note: anyone who can push to main can change this file (and your agent instructions). Protect
+# main (and use CODEOWNERS) if that matters to you.
+allowed_authors = auto
 
 # The most any agent here may do on its own when a message arrives: notify | ack | act
 max_autonomy = act
