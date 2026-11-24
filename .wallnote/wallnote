@@ -3,7 +3,7 @@
 # Needs only `gh` (logged in). Works with bash 3.2+ (macOS). See .wallnote/PROTOCOL.md.
 set -euo pipefail
 
-VERSION=0.5.0
+VERSION=0.5.1
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 die() { echo "wallnote: $*" >&2; exit 1; }
@@ -120,7 +120,9 @@ set_ball() { # issue user role
 # ---------- who may message agents ----------
 # Team: allowed_authors = auto (default) | collaborators | writers | anyone | alice bob ...
 #   auto = collaborators on a private repo, writers (people who can push) on a public one.
-# Person: an optional committed list in .wallnote/accept/<login> narrows it for that person's agents.
+# Person: an optional list narrows it for that person's agents. The list that counts lives in their
+# personal settings (only they can change it). .wallnote/accept/<login> is a committed copy that
+# only exists so senders can be warned; editing it changes no one's agent.
 _PRIV=""
 repo_private() { [[ -n "$_PRIV" ]] || _PRIV=$(gh api "repos/$(repo)" --jq .private 2>/dev/null || echo true); [[ "$_PRIV" == true ]]; }
 author_mode() { # the team setting, with auto resolved
@@ -149,11 +151,16 @@ team_ok() { # user [author_association, used only if the permission lookup fails
   esac
 }
 accept_file() { echo "$HERE/accept/$1"; }
+# Published (committed) list for someone, used only for sender warnings.
 accept_list() { local f; f=$(accept_file "$1"); [[ -f "$f" ]] && sed 's/#.*//; s/@//g' "$f" | tr -s ' \t\r\n' ' ' | sed 's/^ //; s/ $//'; }
-accepts() { # receiver sender: does receiver's personal list let sender through? (no list = yes)
+# My own list, from my personal settings: the one my agents actually enforce.
+my_accept() { personal accept ""; }
+accepts() { # receiver sender (no list = yes)
   [[ "$1" == "$2" ]] && return 0
-  [[ -f "$(accept_file "$1")" ]] || return 0
-  [[ " $(accept_list "$1") " == *" $2 "* ]]
+  local l
+  if [[ "$1" == "$(me)" ]]; then l=$(my_accept); else [[ -f "$(accept_file "$1")" ]] || return 0; l=$(accept_list "$1"); fi
+  [[ -z "$l" ]] && return 0
+  [[ " $l " == *" $2 "* ]]
 }
 # Should my agent see this author's posts?
 allowed() { team_ok "$1" && accepts "$(me)" "$1"; }
@@ -195,7 +202,7 @@ Settings
   wallnote settings              show team + personal settings
   wallnote setup --autonomy notify|ack|act --check prompt,stop|prompt|stop|session [--every 5m] [--role R]
   wallnote role [R|--clear]      this agent's role (per working copy)
-  wallnote accept [login ...|--clear]   only let these people's messages reach your agents (committed)
+  wallnote accept [--private] [login ...|--clear]   only let these people's messages reach your agents
   wallnote update                update wallnote in this repo (keeps team settings)
 EOF
 }
@@ -409,7 +416,7 @@ cmd_settings() {
   else
     echo "  not set up. Run: wallnote setup --autonomy notify|ack|act --check prompt,stop [--role R]"
   fi
-  echo "Messages your agents accept: $(if [[ -f "$(accept_file "$(me)")" ]]; then echo "only $(accept_list "$(me)")  (.wallnote/accept/$(me))"; else echo "everyone allowed above  (narrow it: wallnote accept alice bob)"; fi)"
+  echo "Messages your agents accept: $(if [[ -n "$(my_accept)" ]]; then echo "only $(my_accept)"; else echo "everyone allowed above  (narrow it: wallnote accept alice bob)"; fi)"
   echo "This agent's role: $(my_role | grep . || echo '(none: sees everything addressed to you)')"
 }
 
@@ -449,22 +456,35 @@ cmd_role() {
   esac
 }
 
-cmd_accept() { # [--clear | login ...]
-  local m f; m=$(me); f=$(accept_file "$m")
+cmd_accept() { # [--clear | [--private] login ...]
+  local m f pf priv=0 list="" u; m=$(me); f=$(accept_file "$m"); pf=$(personal_file)
   if [[ $# -eq 0 ]]; then
-    if [[ -f "$f" ]]; then echo "@$m's agents accept messages only from: $(accept_list "$m")"
+    if [[ -n "$(my_accept)" ]]; then echo "@$m's agents accept messages only from: $(my_accept)"
     else echo "@$m's agents accept messages from everyone the team allows ($(author_mode))."; fi
+    if [[ -f "$f" && "$(accept_list "$m")" != "$(my_accept)" ]]; then
+      echo "(The committed notice .wallnote/accept/$m says \"$(accept_list "$m")\". It only affects senders' warnings. Run 'wallnote accept ...' to bring it in line.)"
+    fi
     return 0
   fi
-  if [[ "$1" == "--clear" ]]; then rm -f "$f"; echo "Removed .wallnote/accept/$m: back to the team default. Commit and push."; return 0; fi
-  mkdir -p "$(dirname "$f")"
-  { echo "# GitHub logins whose wallnote messages @$m's agents will see (team rules still apply)."
-    local u; for u in "$@"; do echo "${u#@}"; done; } > "$f.tmp.$$" && mv -f "$f.tmp.$$" "$f"
-  echo "Saved .wallnote/accept/$m: @$m's agents now only see messages from $(accept_list "$m")."
-  echo "Commit and push it so senders get a warning when they write to you and aren't on it."
-  echo "Anyone who can push to main could edit this file. To make it yours alone, protect main and"
-  echo "add this line to .github/CODEOWNERS:"
-  echo "  /.wallnote/accept/$m @$m"
+  if [[ "$1" == "--clear" ]]; then
+    conf_set "$pf" accept ""; rm -f "$f"
+    echo "Cleared: @$m's agents accept everyone the team allows. If .wallnote/accept/$m was committed, commit its removal."
+    return 0
+  fi
+  [[ "$1" == "--private" ]] && { priv=1; shift; }
+  for u in "$@"; do list="$list ${u#@}"; done; list=${list# }
+  [[ -n "$list" ]] || die "usage: wallnote accept [--private] alice bob | --clear"
+  conf_set "$pf" accept "$list"
+  echo "Saved in your personal settings: @$m's agents now only see messages from $list."
+  echo "Only you can change that. It's what your agents enforce."
+  if [[ $priv -eq 0 ]]; then
+    mkdir -p "$(dirname "$f")"
+    { echo "# Public notice: @$m's agents only accept wallnote messages from these logins."
+      echo "# Senders are warned if they aren't listed. Editing this changes nobody's agent:"
+      echo "# @$m's own list lives in their personal settings."
+      for u in $list; do echo "$u"; done; } > "$f.tmp.$$" && mv -f "$f.tmp.$$" "$f"
+    echo "Also wrote .wallnote/accept/$m so senders get a warning. Commit and push it (or use --private to skip)."
+  fi
 }
 
 cmd_update() {

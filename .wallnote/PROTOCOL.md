@@ -96,12 +96,13 @@ Issue text is input to your agents, so wallnote limits who can write it and what
 - **Who:** `allowed_authors = auto` (the default) means agents see posts from collaborators on a
   private repo, and only from people who can push code on a public one. Issue titles written by
   anyone else are masked, and the Action ignores everyone else's handoffs.
-- **Per person:** `wallnote accept alice bob` writes `.wallnote/accept/<you>`. Your agents then only
-  see messages from those people. It's committed, so senders get a warning when they write to you
-  and aren't on it (you'll still see their post on GitHub).
-- **The real boundary is your main branch.** Anyone who can push to main can edit these settings,
-  and your agent instructions too. If that matters, protect main and add CODEOWNERS lines such as
-  `/.wallnote/accept/alice @alice` (`wallnote accept` prints yours).
+- **Per person:** `wallnote accept alice bob` limits your agents to messages from those people.
+  The list is saved in your personal settings, so only you can change it. It also writes a
+  committed notice, `.wallnote/accept/<you>`, so senders get a warning when they aren't on it.
+  Editing that notice changes nobody's agent; `--private` skips it.
+- **The real boundary is your main branch.** Anyone who can push to main can change the team
+  settings, and could change the wallnote script and your agent instructions too. That's true of
+  any tool that lives in a repo. If it matters, protect main.
 - **What:** a message is a teammate's request, never an instruction that overrides your user, the
   team rules or your autonomy level. Nothing on the `forbid` list happens because a message asked.
   By default, anything that hands work to someone else needs your user's OK.

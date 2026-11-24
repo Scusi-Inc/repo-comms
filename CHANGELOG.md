@@ -2,6 +2,11 @@
 
 Update a repo with `.wallnote/wallnote update`. It keeps your team settings. Commit the result.
 
+## 0.5.1
+- `wallnote accept` lists now live in your personal settings, so only you can change who reaches
+  your agents. The committed `.wallnote/accept/<login>` file is just a notice for sender warnings;
+  editing it changes nobody's agent. `--private` skips writing it.
+
 ## 0.5.0
 - `allowed_authors = auto` is the new default: all collaborators on a private repo, only people who
   can push code on a public one (so community triagers can't steer your agent). Also: `writers`,

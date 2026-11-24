@@ -5,7 +5,8 @@
 #   auto (default): collaborators on a private repo; on a public repo, only people who can push code
 #   collaborators: triage access or more  |  writers: push access or more  |  anyone
 #   or a list of logins: alice bob
-# Each person can narrow this for their own agents with `wallnote accept alice bob`.
+# Each person can narrow this for their own agents with `wallnote accept alice bob` (kept in
+# their personal settings, so only they can change it).
 # Note: anyone who can push to main can change this file (and your agent instructions). Protect
 # main (and use CODEOWNERS) if that matters to you.
 allowed_authors = auto
