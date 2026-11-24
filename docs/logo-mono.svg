@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Wallnote icon">
+  <g stroke="#090909" stroke-width="17" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="55" y="161" width="225" height="233" rx="14" fill="#ededed" transform="rotate(-14 167.5 277.5)"/>
+    <rect x="235" y="174" width="222" height="250" rx="14" fill="#ededed" transform="rotate(6 346 299)"/>
+    <path d="M132 105 Q118 105 118 120 L118 381 Q118 396 133 396 H326 Q334 396 341 389 L389 341 Q395 335 395 326 V120 Q395 105 380 105 Z" fill="#fff" transform="rotate(-5 256 250)"/>
+    <path d="M326 396 V351 Q326 337 340 337 H393 L341 389 Q334 396 326 396Z" fill="#bdbdbd" stroke="none" transform="rotate(-5 256 250)"/>
+    <path d="M326 396 Q334 396 341 389 L389 341 Q395 335 395 326" fill="none" transform="rotate(-5 256 250)"/>
+    <path d="M264 119 L255 144" fill="none"/>
+    <circle cx="255" cy="149" r="10" fill="#090909" stroke="none"/>
+    <circle cx="268" cy="88" r="32" fill="#fff"/>
+  </g>
+  <path fill="#090909" stroke="#090909" stroke-width="8" stroke-linejoin="round" d="M169 211 H196 L222 283 L248 215 H267 L293 283 L320 211 H347 L307 318 H281 L257 258 L233 318 H207 Z"/>
+</svg>
