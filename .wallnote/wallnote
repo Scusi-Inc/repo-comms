@@ -68,7 +68,11 @@ read_body() {
     return
   fi
   if [[ $# -gt 0 && "$1" != "-" ]]; then printf '%s' "$*"
-  elif [[ ! -t 0 ]]; then cat
+  elif [[ ! -t 0 ]]; then
+    # Piped or heredoc text. Agent shells often leave stdin open with nothing coming, so give up
+    # after a moment instead of waiting forever (an optional note, like ack's, is then empty).
+    local first=""
+    if IFS= read -r -t 2 first || [[ -n "$first" ]]; then printf '%s\n' "$first"; cat; fi
   else echo ""; fi
 }
 
