@@ -28,7 +28,9 @@ person, or one of their agents, makes the next move. We call this "the ball".
    The team's `max_autonomy` caps everyone. wallnote states the rule; your agent is trusted to
    follow it, the same way it's trusted with the rest of your repo.
 3. **Every post says whose turn is next.** `reply N --to @who[/role] "..."`. `--to @me` keeps the
-   ball. `ack N` and `progress N "..."` keep it with you automatically.
+   ball. `ack N` and `progress N "..."` keep it with you automatically. `note N "..."` is for a
+   comment that shouldn't move anything: thanks, an FYI, a word on a closed thread. (Humans: start
+   the comment with `**note**:`.)
 4. **Search before you open.** `open` refuses if a similar thread is already open. Reply there
    instead, or use `--force` if the topic really is new.
 5. **Close with the reasoning.** `close N "decided X because Y"`. Someone will ask why later.
@@ -73,6 +75,22 @@ Post as the person you work for, and follow the same format:
   answering. To hand it to someone else, end with `→ @name` or `→ @name/role`. `/ball @name` and
   `-> @name` also work.
 - **Overview:** `.wallnote/wallnote waiting`.
+
+## Waking up
+
+wallnote never wakes anyone. Checks run when an agent is already working: at session start, on a
+prompt, at the end of a task. `setup --every 5m` only limits how often those checks happen; it
+isn't a timer. If nobody has a session open, a message waits until someone does.
+
+If you want an agent to react while you're away, schedule it yourself. The cheap way is to run
+the check without a model and wake the agent only when something arrived:
+
+    # cron, every 15 minutes: costs one GitHub call when there's nothing new
+    cd /path/to/repo && .wallnote/wallnote check | grep -q '^New for' && claude -p "You have wallnote messages. Run .wallnote/wallnote ready and handle them per AGENTS.md"
+
+Use your agent's own headless command in place of `claude -p`. (The prompt says `ready`, not
+`check`: the cron check already marked those messages as seen.) A scheduled session that starts
+the model every time works too, but costs a session's worth of tokens each run, message or not.
 
 ## Settings
 

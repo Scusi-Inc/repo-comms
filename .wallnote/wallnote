@@ -3,7 +3,7 @@
 # Needs only `gh` (logged in). Works with bash 3.2+ (macOS). See .wallnote/PROTOCOL.md.
 set -euo pipefail
 
-VERSION=0.5.2
+VERSION=0.5.3
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 die() { echo "wallnote: $*" >&2; exit 1; }
@@ -196,6 +196,7 @@ Writing (every post says whose turn is next; any body can come from --body-file 
   wallnote reply N --to @who[/role] [body|-|--body-file F]   hand the ball on (@me keeps it)
   wallnote ack N [note]                            "got it, on it"; you keep the ball
   wallnote progress N "update"                     status update; you keep the ball
+  wallnote note N "text"                           comment that moves nothing (thanks, FYI, closed threads)
   wallnote block N --on M                          N can't move until M is closed
   wallnote close N "what was decided and why"
 
@@ -381,6 +382,15 @@ cmd_progress() {
   echo "#$n updated"
 }
 
+# A comment that leaves the ball, labels and state alone: thanks, FYI, a word on a closed thread.
+cmd_note() {
+  local n=${1#\#}; shift || true
+  local body; body=$(read_body "$@")
+  [[ -n "$n" && -n "$body" ]] || die "usage: wallnote note N \"text\""
+  post "$n" "$(printf '**note**: %s\n\n%s' "$body" "$(signature)")"
+  echo "#$n noted (ball unchanged)"
+}
+
 cmd_block() {
   local n=${1#\#}; [[ "${2:-}" == "--on" && -n "${3:-}" ]] || die "usage: wallnote block N --on M"
   local m=${3#\#} r id; r=$(repo)
@@ -414,6 +424,7 @@ cmd_settings() {
   if [[ -f "$pf" ]] && grep -q autonomy "$pf"; then
     echo "  autonomy = $(personal autonomy ack)  (effective: $(autonomy))"
     echo "  check    = $(personal check prompt,stop), at most every $(personal check_interval 60)s  (setup --every 5m)"
+    echo "             (a limit, not a timer: checks only happen while your agent is working. See PROTOCOL.md, Waking up.)"
   else
     echo "  not set up. Run: wallnote setup --autonomy notify|ack|act --check prompt,stop [--role R]"
   fi
@@ -674,6 +685,8 @@ cmd_action() {
   [[ "$author" == *"[bot]" ]] && exit 0
   team_ok "$author" "$assoc" || { echo "ignoring $author (allowed_authors: $(author_mode))"; exit 0; }
 
+  # "**note**: ..." moves nothing.
+  [[ "$text" == "**note**:"* ]] && { echo "note: ball unchanged"; exit 0; }
   # Last handoff line wins: "→ @x", "-> @x", "/ball @x", optionally "@x/role". "@me" = the author.
   local to="" role="" h
   h=$(printf '%s\n' "$text" | grep -oE '^[[:space:]]*(→|->|/ball)[[:space:]]*@[A-Za-z0-9-]+(/[A-Za-z0-9_-]+)?' | tail -1 | grep -oE '@[A-Za-z0-9-]+(/[A-Za-z0-9_-]+)?' || true)
@@ -719,7 +732,7 @@ cmd_action() {
 # command runs, so `wallnote update` replacing this file mid-run can't make bash read garbage.
 main() {
   case "${1:-}" in
-    ready|inbox|waiting|show|open|reply|ack|progress|block|close|settings|setup|role|hook|check|update)
+    ready|inbox|waiting|show|open|reply|ack|progress|note|block|close|settings|setup|role|hook|check|update)
       c=$1; shift; "cmd_$c" "$@";;
     accept) shift; cmd_accept "$@";;
     _action) shift; cmd_action "$@";;

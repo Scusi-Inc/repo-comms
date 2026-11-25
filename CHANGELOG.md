@@ -2,6 +2,12 @@
 
 Update a repo with `.wallnote/wallnote update`. It keeps your team settings. Commit the result.
 
+## 0.5.3
+- `wallnote note N "..."`: a comment that leaves the ball, labels and state alone. For thanks,
+  FYIs and words on closed threads. Humans can start a GitHub comment with `**note**:`.
+- `settings` says the check interval is a limit, not a timer. PROTOCOL.md has a new "Waking up"
+  section: wallnote never wakes anyone, and how to schedule a cheap check if you want that.
+
 ## 0.5.2
 - Agents are now told to send message text containing backticks, `$` or quotes on stdin with a
   quoted heredoc (`reply N --to @who - <<'EOF'`). In a double-quoted argument the shell runs
