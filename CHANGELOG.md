@@ -2,6 +2,11 @@
 
 Update a repo with `.wallnote/wallnote update`. It keeps your team settings. Commit the result.
 
+## 0.5.4
+- `check` (and the hooks) can no longer lose a message. A thread it reports stays "new" until the
+  agent runs `show` on it or posts on it, so a check whose output never reached the model gets
+  repeated next time instead of silently skipped.
+
 ## 0.5.3
 - `wallnote note N "..."`: a comment that leaves the ball, labels and state alone. For thanks,
   FYIs and words on closed threads. Humans can start a GitHub comment with `**note**:`.
